@@ -300,6 +300,7 @@ function buildResultCard(r) {
 let nglStage = null;
 let currentComponent = null;
 let isLoadingStructure = false;
+let nglReprs = {};  // { protein: repr, ligand: repr, bs: repr }
 
 const nglContainer      = document.getElementById("nglContainer");
 const viewerPdbInput    = document.getElementById("viewerPdbInput");
@@ -377,6 +378,10 @@ function loadNGLStructure(pdbid, ligandRes, bsRes) {
   }
   viewerLegend.classList.add("hidden");
   viewerResiduePicker.classList.add("hidden");
+  nglReprs = {};
+  document.getElementById("chkProtein").checked = true;
+  document.getElementById("chkLigand").checked = true;
+  document.getElementById("chkBS").checked = true;
 
   const idLower = pdbid.toLowerCase();
   const idUpper = pdbid.toUpperCase();
@@ -435,37 +440,67 @@ function tryLoadSource(sources, index, pdbid, ligandRes, bsRes) {
 
 function renderStructure(comp, ligandRes, bsRes) {
   // Protein cartoon (muted)
-  comp.addRepresentation("cartoon", {
+  const proteinRepr = comp.addRepresentation("cartoon", {
     sele: "protein",
     color: "#64748b",
     opacity: 0.6,
+    name: "protein"
   });
 
   // Ligand residues (amber ball+stick)
+  let ligandRepr;
   if (ligandRes.length) {
     const ligSele = ligandRes.map(nglSele).join(" or ");
-    comp.addRepresentation("ball+stick", {
+    ligandRepr = comp.addRepresentation("ball+stick", {
       sele: ligSele,
       color: "#f59e0b",
       multipleBond: "symmetric",
+      name: "ligand"
     });
   } else {
     // Fallback: show all HETATMs
-    comp.addRepresentation("ball+stick", {
+    ligandRepr = comp.addRepresentation("ball+stick", {
       sele: "hetero and not water",
       color: "#f59e0b",
+      name: "ligand"
     });
   }
 
   // Binding site (blue licorice)
+  let bsRepr = null;
   if (bsRes.length) {
     const bsSele = bsRes.map(nglSele).join(" or ");
-    comp.addRepresentation("licorice", {
+    bsRepr = comp.addRepresentation("licorice", {
       sele: bsSele,
       color: "#5b7cf6",
       opacity: 0.85,
+      name: "bs"
     });
   }
+
+  // Guardar referencias
+  nglReprs.protein = proteinRepr;
+  nglReprs.ligand = ligandRepr;
+  nglReprs.bs = bsRepr;
+
+  // Configurar checkboxes
+  const chkProtein = document.getElementById("chkProtein");
+  const chkLigand = document.getElementById("chkLigand");
+  const chkBS = document.getElementById("chkBS");
+
+  chkProtein.onchange = function() {
+    if (nglReprs.protein) nglReprs.protein.setVisibility(this.checked);
+  };
+  chkLigand.onchange = function() {
+    if (nglReprs.ligand) nglReprs.ligand.setVisibility(this.checked);
+  };
+  chkBS.onchange = function() {
+    if (nglReprs.bs) nglReprs.bs.setVisibility(this.checked);
+  };
+  // Forzar estado inicial
+  chkProtein.onchange.call(chkProtein);
+  chkLigand.onchange.call(chkLigand);
+  chkBS.onchange.call(chkBS);
 
   comp.autoView();
   viewerLegend.classList.remove("hidden");
