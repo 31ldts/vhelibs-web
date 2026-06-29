@@ -304,3 +304,44 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 
 /* ── Utilities ────────────────────────────────────────── */
 .hidden { display: none !important; }
+
+/* ── Unified layer controls ──────────────────────────── */
+.layer-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: .8125rem;
+  color: var(--clr-muted);
+  margin: 6px 0;
+  padding: 4px 0;
+  user-select: none;
+}
+.layer-control input[type="checkbox"] {
+  display: none; /* ocultamos el checkbox nativo */
+}
+
+.layer-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid currentColor;
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s;
+}
+
+/* Colores específicos para cada capa (fondo y borde) */
+.swatch-protein { background: #64748b; border-color: #64748b; }
+.swatch-ligand  { background: #f59e0b; border-color: #f59e0b; }
+.swatch-bs      { background: #5b7cf6; border-color: #5b7cf6; }
+
+/* Cuando el checkbox NO está marcado → fondo transparente (solo borde) */
+.layer-control input[type="checkbox"]:not(:checked) + .layer-swatch {
+  background: transparent !important;
+}
+/* Cuando está marcado, el fondo se mantiene según su clase (no se necesita regla extra) */
+
+/* (Opcional) Atenuar el texto cuando la capa está oculta */
+.layer-control input[type="checkbox"]:not(:checked) ~ * {
+  opacity: 0.6;
+}

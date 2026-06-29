@@ -305,7 +305,6 @@ let nglReprs = {};  // { protein: repr, ligand: repr, bs: repr }
 const nglContainer      = document.getElementById("nglContainer");
 const viewerPdbInput    = document.getElementById("viewerPdbInput");
 const loadStructureBtn  = document.getElementById("loadStructureBtn");
-const viewerLegend      = document.getElementById("viewerLegend");
 const viewerLigandList  = document.getElementById("viewerLigandList");
 const viewerResiduePicker = document.getElementById("viewerResiduePicker");
 
@@ -376,7 +375,6 @@ function loadNGLStructure(pdbid, ligandRes, bsRes) {
     nglStage.removeAllComponents();
     currentComponent = null;
   }
-  viewerLegend.classList.add("hidden");
   viewerResiduePicker.classList.add("hidden");
   nglReprs = {};
   document.getElementById("chkProtein").checked = true;
@@ -503,7 +501,6 @@ function renderStructure(comp, ligandRes, bsRes) {
   chkBS.onchange.call(chkBS);
 
   comp.autoView();
-  viewerLegend.classList.remove("hidden");
 
   // Re-fit the camera shortly after, in case the canvas was 0x0 (hidden tab,
   // layout not yet settled) at the time of the first autoView() call above.

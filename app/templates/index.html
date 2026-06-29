@@ -136,21 +136,22 @@
           <div class="viewer-btn-row">
             <button id="loadStructureBtn" class="btn btn-primary">Load Structure</button>
           </div>
-          <div id="viewerLegend" class="viewer-legend hidden">
-            <div class="legend-item"><span class="legend-swatch swatch-ligand"></span> Ligand</div>
-            <div class="legend-item"><span class="legend-swatch swatch-bs"></span> Binding site</div>
-            <div class="legend-item"><span class="legend-swatch swatch-protein"></span> Protein</div>
-          </div>
           <div class="viewer-layers">
             <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Display layers</h3>
-            <label class="checkbox-label">
-              <input type="checkbox" id="chkProtein" checked> Protein
+            <label class="layer-control">
+              <input type="checkbox" id="chkProtein" checked>
+              <span class="layer-swatch swatch-protein"></span>
+              Protein
             </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="chkLigand" checked> Ligand
+            <label class="layer-control">
+              <input type="checkbox" id="chkLigand" checked>
+              <span class="layer-swatch swatch-ligand"></span>
+              Ligand
             </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="chkBS" checked> Binding site
+            <label class="layer-control">
+              <input type="checkbox" id="chkBS" checked>
+              <span class="layer-swatch swatch-bs"></span>
+              Binding site
             </label>
           </div>
           <div id="viewerResiduePicker" class="residue-picker hidden">
