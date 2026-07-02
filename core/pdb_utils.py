@@ -96,19 +96,19 @@ def get_custom_report(pdbid):
 
         method = info.get("experimental_method", "")
 
-        # Resolution: try ls_dres_high first, then ls_dres_low (some entries only have one),
+        # Resolution: try ls_d_res_high first, then ls_d_res_low (some entries only have one),
         # then the entry-level resolution from rcsb_entry_info.
         resolution = (
-            refine.get("ls_dres_high")
-            or refine.get("ls_dres_low")
+            refine.get("ls_d_res_high")
+            or refine.get("ls_d_res_low")
             or info.get("resolution_combined", [None])[0]
             or 0.0
         )
 
         rowdict = {
             "experimentalTechnique": method,
-            "rFree":                 refine.get("ls_rfactor_rfree")  or 9999,
-            "rWork":                 refine.get("ls_rfactor_rwork")  or 9999,
+            "rFree":                 refine.get("ls_R_factor_R_free")  or 9999,
+            "rWork":                 refine.get("ls_R_factor_R_work")  or 9999,
             "refinementResolution":  float(resolution) if resolution else 0.0,
             "nreflections":          refine.get("ls_number_reflns_rfree") or 0,
             "unitCellAngleAlpha":    cell.get("angle_alpha")  or 0.0,
