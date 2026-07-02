@@ -3,6 +3,9 @@
 #   Copyright 2010-2024 Adrià Cereto Massagué
 #   Migrated to web version.
 #   Changes: replaced urllib with requests; proper SSL/timeout; no Cython deps.
+#   Added: get_edm() to fetch the full electron density map (CCP4 format),
+#   which EDS_parser.py used to fetch from the now-defunct
+#   edmaps.rcsb.org/maps/{}_2fofc.dsn6 endpoint.
 #
 import os
 import logging
@@ -15,6 +18,83 @@ import core.pdb_utils as pdb_utils
 logger = logging.getLogger(__name__)
 
 EDSTATS_URL = "https://www.ebi.ac.uk/pdbe/entry-files/download/{}_validation.xml"
+
+# Full 2Fo-Fc map in CCP4 format. Confirmed working endpoint (see the
+# official Mol*/MolViewSpec documentation examples, which use this same
+# URL pattern against 1tqn). Mol* can parse .ccp4/.map files client-side
+# via `parse({format: 'map'})` or `plugin.builders.volume.parseVolume`.
+EDM_URL = "https://www.ebi.ac.uk/pdbe/entry-files/{}.ccp4"
+
+# Per-region density "box" endpoint (EBI's density VolumeServer). Given a
+# bounding box (in Angstrom, orthogonal coordinates) it streams back only
+# the relevant chunk of the map as BinaryCIF, with two channels: 2FO-FC
+# and FO-FC. This is what the 3D viewer uses for segmented density
+# (ligand / binding site / residues-to-examine), since it avoids
+# downloading and masking the whole map in the browser.
+EDM_BOX_URL = (
+    "https://www.ebi.ac.uk/pdbe/densities/x-ray/{pdbid}/box/"
+    "{minx},{miny},{minz}/{maxx},{maxy},{maxz}?detail={detail}"
+)
+
+
+def edm_box_url(pdbid, box, detail=3):
+    """
+    Build the EBI density-server "box" query URL for a given bounding box.
+
+    box: {"min": [x, y, z], "max": [x, y, z]} (Angstrom, orthogonal coords)
+    detail: 0 (coarsest) - 6 (finest); 3 is a good default for ligand-sized
+            regions.
+    """
+    (minx, miny, minz) = box["min"]
+    (maxx, maxy, maxz) = box["max"]
+    return EDM_BOX_URL.format(
+        pdbid=pdbid.lower(),
+        minx=minx, miny=miny, minz=minz,
+        maxx=maxx, maxy=maxy, maxz=maxz,
+        detail=detail,
+    )
+
+
+def get_edm(pdbid, use_cache=True):
+    """
+    Download (and cache) the full 2Fo-Fc electron density map for *pdbid*
+    in CCP4 format.
+
+    Returns (filepath, sigma) on success, or (None, None) on failure.
+    `sigma` is a fixed placeholder (1.0) here: unlike the old .dsn6 format,
+    CCP4 maps carry their own header statistics (mean/rms), so Mol* / any
+    CCP4-aware client computes contour levels directly from the file
+    instead of needing a separately-tracked sigma value. It is kept in the
+    return signature for backwards compatibility with callers of the old
+    EDS_parser.get_EDM().
+    """
+    pdbid = pdbid.lower()
+    downloaddir = os.path.join(pdb_utils.CACHEDIR, pdbid)
+    os.makedirs(downloaddir, exist_ok=True)
+    mapfile = os.path.join(downloaddir, f"{pdbid}.ccp4")
+
+    if use_cache and os.path.isfile(mapfile) and os.path.getsize(mapfile) > 0:
+        return mapfile, 1.0
+
+    url = EDM_URL.format(pdbid)
+    try:
+        logger.info("Downloading EDM %s", url)
+        r = requests.get(url, timeout=120, verify=True, stream=True)
+        if r.status_code == 404:
+            logger.warning("No EDM available for %s", pdbid)
+            return None, None
+        r.raise_for_status()
+        tmp_path = mapfile + ".part"
+        with open(tmp_path, "wb") as fh:
+            for chunk in r.iter_content(chunk_size=1 << 16):
+                if chunk:
+                    fh.write(chunk)
+        os.replace(tmp_path, mapfile)
+    except Exception as exc:
+        logger.error("EDM fetch error for %s: %s", pdbid, exc)
+        return None, None
+
+    return mapfile, 1.0
 
 
 def get_EDS(pdbid):
@@ -84,3 +164,8 @@ def get_EDS(pdbid):
         pdbdict[pdbid] = str(exc)
 
     return pdbdict, edd_dict
+
+
+# Clearer alias used by newer call sites; kept get_EDS for backwards
+# compatibility with rsr_core.py and any other existing callers.
+get_validation_data = get_EDS

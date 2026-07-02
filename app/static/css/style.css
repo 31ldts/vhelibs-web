@@ -267,6 +267,34 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 .swatch-bs      { background: #5b7cf6; }
 .swatch-protein { background: #64748b; }
 
+/* Density-region legend (electron density colors, distinct from the
+   structure representation colors above so both can be shown together) */
+.swatch-density-ligand { background: #e879f9; border-color: #e879f9; } /* magenta */
+.swatch-density-bs     { background: #22d3ee; border-color: #22d3ee; } /* cyan */
+.swatch-density-rte    { background: #facc15; border-color: #facc15; } /* yellow */
+
+.density-controls { margin-top: 6px; }
+.density-controls input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--clr-surface2);
+  outline: none;
+}
+.density-controls input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--clr-accent);
+  cursor: pointer;
+}
+.density-controls input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--clr-accent); border: none; cursor: pointer;
+}
+#isovalueReadout { color: var(--clr-accent); font-weight: 600; }
+
 .residue-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .residue-btn {
   background: var(--clr-surface2); border: 1px solid var(--clr-border);

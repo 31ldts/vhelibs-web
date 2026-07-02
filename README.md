@@ -41,7 +41,7 @@ vhelibs-web/
 │   ├── routes.py            # REST endpoints + job queue
 │   ├── static/
 │   │   ├── css/style.css
-│   │   └── js/app.js        # SPA frontend + NGL Viewer integration
+│   │   └── js/app.js        # SPA frontend + Mol* Viewer integration
 │   └── templates/
 │       └── index.html
 └── core/
@@ -64,7 +64,7 @@ vhelibs-web/
 | `PdbAtom.py` | `core/pdb_atom.py` | Kept pure Python; added `__hash__` |
 | `cofactors.py` | `core/cofactors.py` | Essentially unchanged |
 | `cPdbAtom.pyx` | *(removed)* | Pure Python is fast enough |
-| `visualitzador.py` | `app/templates/index.html` + `app/static/js/app.js` | Jmol/Swing → NGL Viewer |
+| `visualitzador.py` | `app/templates/index.html` + `app/static/js/app.js` | Jmol/Swing → NGL Viewer → Mol* Viewer |
 | `Main.java`, `PdbAtomJava.java` | *(removed)* | No Java required |
 | `multithreading.py` | *(removed)* | Flask threaded + Python threading |
 | `argparse.py` | *(removed)* | Bundled copy not needed in Python 3 |

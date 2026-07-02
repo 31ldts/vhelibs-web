@@ -74,6 +74,48 @@ def _average_occ(residue_atoms):
     return sum(a.occupancy for a in residue_atoms) / len(residue_atoms)
 
 
+# ---------------------------------------------------------------------------
+# Density-map bounding boxes
+# ---------------------------------------------------------------------------
+#
+# For each region of interest (ligand, binding site, residues-to-examine)
+# we compute an axis-aligned bounding box over the atoms of that region,
+# padded by `padding` Angstrom. The frontend uses this box to ask EBI's
+# density server (see core.eds_utils.edm_box_url) for just the relevant
+# chunk of the 2Fo-Fc/Fo-Fc map, instead of downloading and masking the
+# whole map client-side. `padding` defaults to 2.1 Å, the same distance
+# rsr_analysis.py/rsr_core.py already use elsewhere to detect covalent
+# contacts, and a sensible "shell" around the region for density display.
+
+DEFAULT_BOX_PADDING = 2.1
+
+
+def _atoms_for_residues(residues, res_atom_dict, ligand_res_atom_dict):
+    atoms = []
+    for res in residues:
+        atoms.extend(res_atom_dict.get(res, ()))
+        atoms.extend(ligand_res_atom_dict.get(res, ()))
+    return atoms
+
+
+def _bbox(atoms, padding=DEFAULT_BOX_PADDING):
+    """Axis-aligned bounding box (padded) over an iterable of PdbAtom."""
+    atoms = list(atoms)
+    if not atoms:
+        return None
+    xs, ys, zs = zip(*(a.xyz for a in atoms))
+    return {
+        "min": [min(xs) - padding, min(ys) - padding, min(zs) - padding],
+        "max": [max(xs) + padding, max(ys) + padding, max(zs) + padding],
+    }
+
+
+def residues_bbox(residues, res_atom_dict, ligand_res_atom_dict, padding=DEFAULT_BOX_PADDING):
+    """Padded bounding box covering all atoms of the given residue keys."""
+    atoms = _atoms_for_residues(residues, res_atom_dict, ligand_res_atom_dict)
+    return _bbox(atoms, padding)
+
+
 def _dpi(a, b, c, alpha, beta, gamma, natoms, reflections, rfree):
     cosa = math.cos(math.radians(alpha))
     cosb = math.cos(math.radians(beta))
@@ -543,6 +585,16 @@ def parse_binding_site(pdbid, cfg=None):
             "ligand_score": lig_score,
             "binding_site_score": bs_score,
             "low_occupancy": sorted(bad_occupancy),
+            # Padded bounding boxes for on-demand, segmented density
+            # display in the 3D viewer (see core.eds_utils.edm_box_url).
+            # None if a region has no atoms (shouldn't normally happen for
+            # ligand_residues, but binding_site/rte can theoretically be
+            # empty for a solvent-exposed ligand with distance=0).
+            "density_boxes": {
+                "ligand": residues_bbox(ligandresidues, res_atom_dict, ligand_res_atom_dict),
+                "binding_site": residues_bbox(binding_site, res_atom_dict, ligand_res_atom_dict),
+                "residues_to_examine": residues_bbox(rte, res_atom_dict, ligand_res_atom_dict),
+            },
         })
 
     safe_struc = {k: (v if not (isinstance(v, float) and math.isnan(v)) else None)

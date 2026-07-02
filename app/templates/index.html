@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VHELIBS – Validation Helper for LIgands and Binding Sites</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  <!-- NGL Viewer (WebGL 3D structure viewer) -->
-  <script src="https://cdn.jsdelivr.net/npm/ngl@2.4.0/dist/ngl.js"></script>
+  <!-- Mol* Viewer (WebGL 3D structure viewer). Pinned to the 4.x line;
+       bump deliberately after testing rather than tracking @latest. -->
+  <script src="https://cdn.jsdelivr.net/npm/molstar@4/build/viewer/molstar.js"></script>
+  <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/molstar@4/build/viewer/molstar.css" />
 </head>
 <body>
   <header class="site-header">
@@ -154,11 +156,35 @@
               Binding site
             </label>
           </div>
+          <div id="viewerDensityControls" class="density-controls hidden">
+            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Electron density (2Fo-Fc)</h3>
+            <label class="layer-control">
+              <input type="checkbox" id="chkDensityLigand" checked>
+              <span class="layer-swatch swatch-density-ligand"></span>
+              Ligand
+            </label>
+            <label class="layer-control">
+              <input type="checkbox" id="chkDensityBS" checked>
+              <span class="layer-swatch swatch-density-bs"></span>
+              Binding site
+            </label>
+            <label class="layer-control">
+              <input type="checkbox" id="chkDensityRTE" checked>
+              <span class="layer-swatch swatch-density-rte"></span>
+              Residues to examine
+            </label>
+            <label class="th-label" style="margin-top:8px">
+              Contour level (isovalue) <span id="isovalueReadout">1.0σ</span>
+              <input type="range" id="isovalueSlider" min="0.5" max="3.0" step="0.1" value="1.0" class="th-input" />
+            </label>
+          </div>
           <div id="viewerResiduePicker" class="residue-picker hidden">
-            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Highlight residues</h3>
+            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Residues to examine</h3>
             <div id="viewerLigandList" class="residue-list"></div>
           </div>
         </div>
+        <!-- id/class names kept as "ngl*" for CSS compatibility (see style.css);
+             this container is now mounted and driven by Mol* Viewer, not NGL. -->
         <div id="nglContainer" class="ngl-viewport">
           <div class="ngl-placeholder">
             <p>Enter a PDB ID and click <strong>Load Structure</strong></p>
@@ -195,7 +221,7 @@
           <li>Structure files: <a href="https://www.rcsb.org" target="_blank">RCSB PDB</a> (mmCIF format)</li>
           <li>Validation statistics: <a href="https://www.ebi.ac.uk/pdbe" target="_blank">PDBe validation reports</a></li>
           <li>Re-refined structures: <a href="https://pdb-redo.eu" target="_blank">PDB-REDO</a></li>
-          <li>3D visualisation: <a href="https://nglviewer.org" target="_blank">NGL Viewer</a></li>
+          <li>3D visualisation: <a href="https://molstar.org" target="_blank">Mol* Viewer</a></li>
         </ul>
         <h3>Citation</h3>
         <p>

@@ -12,6 +12,20 @@ const tabPanels = document.querySelectorAll(".tab-panel");
 function showTab(name) {
   tabPanels.forEach(p => p.classList.toggle("active", p.id === name));
   tabLinks.forEach(l => l.classList.toggle("active", l.dataset.tab === name));
+
+  // Mol*'s canvas can end up with a stale/zero size if it was created (or
+  // last resized) while this tab was hidden (display:none). Force a re-pin
+  // + resize whenever the viewer tab becomes visible, not just on load.
+  if (name === "viewer" && viewerInstance) {
+    requestAnimationFrame(() => {
+      pinContainerSize();
+      viewerInstance.handleResize();
+    });
+    setTimeout(() => {
+      pinContainerSize();
+      viewerInstance.handleResize();
+    }, 300);
+  }
 }
 
 tabLinks.forEach(link => {
@@ -238,7 +252,9 @@ function buildResultCard(r) {
         </div>
         <button class="view-btn" data-pdbid="${esc(r.pdbid)}"
           data-ligands='${JSON.stringify(l.ligand_residues)}'
-          data-bs='${JSON.stringify(l.binding_site_residues)}'>
+          data-bs='${JSON.stringify(l.binding_site_residues)}'
+          data-rte='${JSON.stringify(l.residues_to_examine || [])}'
+          data-boxes='${JSON.stringify(l.density_boxes || {})}'>
           View 3D
         </button>
       </div>
@@ -288,111 +304,176 @@ function buildResultCard(r) {
       const pdbid   = btn.dataset.pdbid;
       const ligands = JSON.parse(btn.dataset.ligands || "[]");
       const bs      = JSON.parse(btn.dataset.bs || "[]");
-      openViewer(pdbid, ligands, bs);
+      const rte     = JSON.parse(btn.dataset.rte || "[]");
+      const boxes   = JSON.parse(btn.dataset.boxes || "{}");
+      openViewer(pdbid, ligands, bs, rte, boxes);
     });
   });
 
   return card;
 }
 
-// ── 3D Viewer (NGL) ───────────────────────────────────────
+// ── 3D Viewer (Mol*) ──────────────────────────────────────
+//
+// Migrated from NGL to Mol*. Instead of imperatively adding/removing
+// representations on a live component (the NGL approach), the scene is
+// described declaratively as a MolViewSpec (MVS) tree and (re)loaded via
+// the MolViewSpec extension. This has a useful side effect for us: Mol*
+// diffs the new state tree against the current one and only recomputes
+// the parts that actually changed, so re-loading the MVS tree on every
+// checkbox toggle does NOT re-download/re-parse the structure file — only
+// the affected representations are touched. Camera focus/jump-to-residue
+// is handled separately via viewer.structureInteractivity(), which doesn't
+// require touching the state tree at all.
 
-let nglStage = null;
-let currentComponent = null;
+let viewerInitPromise = null;   // Promise<Viewer>, created once
+let viewerInstance    = null;   // resolved Mol* Viewer (has .plugin)
 let isLoadingStructure = false;
-let nglReprs = {};  // { protein: repr, ligand: repr, bs: repr }
+let currentPdbId      = null;
+let currentLigandRes  = [];
+let currentBsRes      = [];
+let currentRteRes     = [];
+let currentDensityBoxes = null; // {ligand, binding_site, residues_to_examine} bboxes, or null if unknown
+const layerState = { protein: true, ligand: true, bs: true }; // structure checkbox state
+const densityLayerState = { ligand: true, bs: true, rte: true }; // density checkbox state
+let currentIsovalue = 1.0; // relative sigma units
 
-const nglContainer      = document.getElementById("nglContainer");
-const viewerPdbInput    = document.getElementById("viewerPdbInput");
-const loadStructureBtn  = document.getElementById("loadStructureBtn");
-const viewerLigandList  = document.getElementById("viewerLigandList");
+const molContainer        = document.getElementById("nglContainer"); // id kept for CSS compat
+const viewerPdbInput      = document.getElementById("viewerPdbInput");
+const loadStructureBtn    = document.getElementById("loadStructureBtn");
+const viewerLigandList    = document.getElementById("viewerLigandList");
 const viewerResiduePicker = document.getElementById("viewerResiduePicker");
+const viewerDensityControls = document.getElementById("viewerDensityControls");
+const isovalueSlider      = document.getElementById("isovalueSlider");
+const isovalueReadout     = document.getElementById("isovalueReadout");
 
 function pinContainerSize() {
-  // NGL's WebGL canvas needs the container to report a real, non-zero pixel
-  // size. Relying purely on CSS percentages inside a Grid cell has proven
-  // unreliable here — the canvas ends up clamped to a few px. So we
+  // Mol*'s WebGL canvas needs the container to report a real, non-zero
+  // pixel size. Relying purely on CSS percentages inside a Grid cell has
+  // proven unreliable here — the canvas ends up clamped to a few px. So we
   // explicitly read the parent grid cell's box and set hard pixel
-  // dimensions on #nglContainer itself.
-  const rect = nglContainer.getBoundingClientRect();
+  // dimensions on the container itself. Same approach as before, just
+  // pointed at Mol* instead of NGL.
+  const rect = molContainer.getBoundingClientRect();
   const w = Math.max(Math.round(rect.width), 500);
   const h = Math.max(Math.round(rect.height), 400);
-  nglContainer.style.width  = w + "px";
-  nglContainer.style.height = h + "px";
+  molContainer.style.width  = w + "px";
+  molContainer.style.height = h + "px";
   return { w, h };
 }
 
-function initNGL() {
-  if (nglStage) return;
-  // Remove placeholder
-  nglContainer.innerHTML = "";
+function initMolstar() {
+  if (viewerInitPromise) return viewerInitPromise;
+  molContainer.innerHTML = ""; // remove placeholder
 
   const { w, h } = pinContainerSize();
-  console.log(`[VHELIBS] nglContainer pinned to: ${w}x${h}`);
+  console.log(`[VHELIBS] molContainer pinned to: ${w}x${h}`);
 
-  nglStage = new NGL.Stage(nglContainer, {
-    backgroundColor: "#1a1d27",
+  viewerInitPromise = molstar.Viewer.create(molContainer, {
+    layoutIsExpanded: false,
+    layoutShowControls: false,
+    layoutShowSequence: false,
+    layoutShowLog: false,
+    layoutShowLeftPanel: false,
+    layoutShowRemoteState: false,
+    viewportShowExpand: true,
+    viewportShowControls: false,
+    viewportShowSelectionMode: false,
+    viewportShowAnimation: false,
+    viewportShowSettings: false,
+    viewportBackgroundColor: "#1a1d27",
+    pdbProvider: "rcsb",
+  }).then(viewer => {
+    viewerInstance = viewer;
+
+    // Re-pin and resize on window resize, and once more shortly after
+    // creation in case fonts/layout shifted the grid track size.
+    window.addEventListener("resize", () => {
+      pinContainerSize();
+      viewerInstance.handleResize();
+    });
+
+    setTimeout(() => {
+      const sz = pinContainerSize();
+      viewerInstance.handleResize();
+      console.log(`[VHELIBS] molContainer re-pinned after settle: ${sz.w}x${sz.h}`);
+    }, 300);
+
+    return viewer;
   });
 
-  // Re-pin and resize on window resize, and once more shortly after
-  // creation in case fonts/layout shifted the grid track size.
-  window.addEventListener("resize", () => {
-    pinContainerSize();
-    nglStage.handleResize();
-  });
-
-  setTimeout(() => {
-    const sz = pinContainerSize();
-    nglStage.handleResize();
-    console.log(`[VHELIBS] nglContainer re-pinned after settle: ${sz.w}x${sz.h}`);
-  }, 300);
+  return viewerInitPromise;
 }
 
 loadStructureBtn.addEventListener("click", () => {
   if (isLoadingStructure) return;
   const pdbid = viewerPdbInput.value.trim().toUpperCase();
   if (!pdbid) return;
-  loadNGLStructure(pdbid, [], []);
+  loadMolstarStructure(pdbid, [], [], [], null);
 });
 
-function openViewer(pdbid, ligandRes, bsRes) {
+function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes) {
   showTab("viewer");
   viewerPdbInput.value = pdbid.toUpperCase();
-  loadNGLStructure(pdbid, ligandRes, bsRes);
+  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null);
 }
 
-function loadNGLStructure(pdbid, ligandRes, bsRes) {
+async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes) {
   if (isLoadingStructure) {
-    console.warn("loadNGLStructure called while a load is already in progress — ignoring.");
+    console.warn("loadMolstarStructure called while a load is already in progress — ignoring.");
     return;
   }
   isLoadingStructure = true;
   loadStructureBtn.disabled = true;
   loadStructureBtn.textContent = "Loading…";
-
-  initNGL();
-  if (currentComponent) {
-    nglStage.removeAllComponents();
-    currentComponent = null;
-  }
   viewerResiduePicker.classList.add("hidden");
-  nglReprs = {};
+  viewerDensityControls.classList.add("hidden");
+
+  currentPdbId = pdbid;
+  currentLigandRes = ligandRes;
+  currentBsRes = bsRes;
+  currentRteRes = rteRes || [];
+  currentDensityBoxes = densityBoxes || null;
+  layerState.protein = true;
+  layerState.ligand = true;
+  layerState.bs = true;
+  densityLayerState.ligand = true;
+  densityLayerState.bs = true;
+  densityLayerState.rte = true;
+  currentIsovalue = 1.0;
   document.getElementById("chkProtein").checked = true;
   document.getElementById("chkLigand").checked = true;
   document.getElementById("chkBS").checked = true;
+  document.getElementById("chkDensityLigand").checked = true;
+  document.getElementById("chkDensityBS").checked = true;
+  document.getElementById("chkDensityRTE").checked = true;
+  isovalueSlider.value = currentIsovalue;
+  isovalueReadout.textContent = currentIsovalue.toFixed(1) + "σ";
 
-  const idLower = pdbid.toLowerCase();
-  const idUpper = pdbid.toUpperCase();
-
-  // Known-working RCSB download endpoints, in order of preference.
-  // Each entry gets a unique "name" so NGL/the CIF parser never reuses an
-  // internal cache key across different attempts.
-  const sources = [
-    { url: `https://files.rcsb.org/download/${idLower}.cif`,  ext: "cif", name: `${idLower}-cif` },
-    { url: `https://files.rcsb.org/download/${idUpper}.pdb`,  ext: "pdb", name: `${idLower}-pdb` },
-  ];
-
-  tryLoadSource(sources, 0, pdbid, ligandRes, bsRes);
+  try {
+    await initMolstar();
+    pinContainerSize();
+    await applyMolstarScene({ focus: true, keepCamera: false });
+    populateResiduePicker(currentRteRes.length ? currentRteRes : ligandRes);
+    // Only show density controls when we actually have region boxes to
+    // query (i.e. came from an analysis result, not a bare PDB ID load).
+    if (currentDensityBoxes && hasAnyBox(currentDensityBoxes)) {
+      viewerDensityControls.classList.remove("hidden");
+    }
+  } catch (err) {
+    console.error("[VHELIBS] Mol* load failed:", err);
+    alert(`Could not load structure ${pdbid}.\nNone of the RCSB endpoints responded with a valid structure file. Check your internet connection or try a different PDB ID.`);
+  } finally {
+    finishLoading();
+    // Re-fit shortly after, in case the canvas was 0x0 (hidden tab, layout
+    // not yet settled) at the time this ran.
+    setTimeout(() => {
+      if (viewerInstance) {
+        pinContainerSize();
+        viewerInstance.handleResize();
+      }
+    }, 350);
+  }
 }
 
 function finishLoading() {
@@ -401,154 +482,219 @@ function finishLoading() {
   loadStructureBtn.textContent = "Load Structure";
 }
 
-function tryLoadSource(sources, index, pdbid, ligandRes, bsRes) {
-  if (index >= sources.length) {
-    finishLoading();
-    alert(`Could not load structure ${pdbid}.\nNone of the RCSB endpoints responded with a valid structure file. Check your internet connection or try a different PDB ID.`);
-    return;
-  }
-
-  const { url, ext, name } = sources[index];
-  console.log(`[VHELIBS] Attempting load #${index}: ${url}`);
-  nglStage.loadFile(url, { ext: ext, name: name, defaultRepresentation: false })
-    .then(comp => {
-      const n = comp && comp.structure ? comp.structure.atomCount : 0;
-      console.log(`[VHELIBS] Load succeeded for ${url}, atomCount=${n}`);
-      if (!comp || !comp.structure || !n) {
-        if (comp) nglStage.removeComponent(comp);
-        throw new Error("Empty structure returned");
-      }
-      currentComponent = comp;
-      try {
-        renderStructure(comp, ligandRes, bsRes);
-      } catch (renderErr) {
-        // A bug in our own representation/selection code should NOT trigger
-        // a retry against a different file format — that would just load
-        // the same (good) structure again. Surface it directly instead.
-        console.error("[VHELIBS] renderStructure failed:", renderErr);
-        alert("Structure loaded, but rendering failed: " + renderErr.message);
-      }
-      finishLoading();
-    })
-    .catch(err => {
-      console.warn(`[VHELIBS] Load failed for ${url} (${ext}):`, err && err.message ? err.message : err);
-      tryLoadSource(sources, index + 1, pdbid, ligandRes, bsRes);
-    });
-}
-
-function renderStructure(comp, ligandRes, bsRes) {
-  // Protein cartoon (muted)
-  const proteinRepr = comp.addRepresentation("cartoon", {
-    sele: "protein",
-    color: "#64748b",
-    opacity: 0.6,
-    name: "protein"
-  });
-
-  // Ligand residues (amber ball+stick)
-  let ligandRepr;
-  if (ligandRes.length) {
-    const ligSele = ligandRes.map(nglSele).join(" or ");
-    ligandRepr = comp.addRepresentation("ball+stick", {
-      sele: ligSele,
-      color: "#f59e0b",
-      multipleBond: "symmetric",
-      name: "ligand"
-    });
-  } else {
-    // Fallback: show all HETATMs
-    ligandRepr = comp.addRepresentation("ball+stick", {
-      sele: "hetero and not water",
-      color: "#f59e0b",
-      name: "ligand"
-    });
-  }
-
-  // Binding site (blue licorice)
-  let bsRepr = null;
-  if (bsRes.length) {
-    const bsSele = bsRes.map(nglSele).join(" or ");
-    bsRepr = comp.addRepresentation("licorice", {
-      sele: bsSele,
-      color: "#5b7cf6",
-      opacity: 0.85,
-      name: "bs"
-    });
-  }
-
-  // Guardar referencias
-  nglReprs.protein = proteinRepr;
-  nglReprs.ligand = ligandRepr;
-  nglReprs.bs = bsRepr;
-
-  // Configurar checkboxes
-  const chkProtein = document.getElementById("chkProtein");
-  const chkLigand = document.getElementById("chkLigand");
-  const chkBS = document.getElementById("chkBS");
-
-  chkProtein.onchange = function() {
-    if (nglReprs.protein) nglReprs.protein.setVisibility(this.checked);
-  };
-  chkLigand.onchange = function() {
-    if (nglReprs.ligand) nglReprs.ligand.setVisibility(this.checked);
-  };
-  chkBS.onchange = function() {
-    if (nglReprs.bs) nglReprs.bs.setVisibility(this.checked);
-  };
-  // Forzar estado inicial
-  chkProtein.onchange.call(chkProtein);
-  chkLigand.onchange.call(chkLigand);
-  chkBS.onchange.call(chkBS);
-
-  comp.autoView();
-
-  // Re-fit the camera shortly after, in case the canvas was 0x0 (hidden tab,
-  // layout not yet settled) at the time of the first autoView() call above.
-  setTimeout(() => {
-    if (nglStage) {
-      pinContainerSize();
-      nglStage.handleResize();
-      comp.autoView();
-    }
-  }, 350);
-
-  // Populate residue picker
-  if (ligandRes.length) {
-    viewerLigandList.innerHTML = "";
-    ligandRes.forEach(res => {
-      const btn = document.createElement("button");
-      btn.className = "residue-btn";
-      btn.textContent = res;
-      btn.addEventListener("click", () => {
-        const s = nglSele(res);
-        comp.autoView(s, 1000);
-      });
-      viewerLigandList.appendChild(btn);
-    });
-    viewerResiduePicker.classList.remove("hidden");
-  }
+// RCSB download endpoints to try, in order of preference.
+function molstarSources(pdbidLower) {
+  return [
+    { url: `https://files.rcsb.org/download/${pdbidLower}.cif`, format: "mmcif" },
+    { url: `https://files.rcsb.org/download/${pdbidLower}.pdb`, format: "pdb" },
+  ];
 }
 
 /**
- * Convert a VHELIBS residue string like "ATP A  42" to an NGL selection string.
- * Format: "RES CHAIN RESNUM" with fixed-width padding.
+ * Build and load the MVS scene for the current PDB ID, honouring
+ * layerState (which representations to include) and residue selections.
+ * Tries each RCSB source in turn, the same fallback behaviour the NGL
+ * version had.
  */
-function nglSele(res) {
-  // res is like "ATP A  42" or "GLY A   5"
+async function applyMolstarScene({ focus, keepCamera }) {
+  const sources = molstarSources(currentPdbId.toLowerCase());
+  let lastErr = null;
+
+  for (const src of sources) {
+    try {
+      const mvsData = buildMvsData(
+        src.url, src.format, currentLigandRes, currentBsRes, layerState, focus,
+        currentDensityBoxes, densityLayerState, currentIsovalue
+      );
+      await molstar.PluginExtensions.mvs.loadMVS(viewerInstance.plugin, mvsData, {
+        replaceExisting: true,
+        keepCamera: !!keepCamera,
+        sanityChecks: true,
+      });
+      return;
+    } catch (err) {
+      console.warn(`[VHELIBS] Mol* load failed for ${src.url}:`, err && err.message ? err.message : err);
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("Unknown Mol* load error");
+}
+
+// Region -> {color, layerKey, boxKey} mapping shared by buildMvsData and
+// the checkbox wiring below.
+const DENSITY_REGIONS = [
+  { boxKey: "ligand",               layerKey: "ligand", color: "#e879f9" }, // magenta
+  { boxKey: "binding_site",         layerKey: "bs",      color: "#22d3ee" }, // cyan
+  { boxKey: "residues_to_examine",  layerKey: "rte",     color: "#facc15" }, // yellow
+];
+
+function hasAnyBox(densityBoxes) {
+  return DENSITY_REGIONS.some(r => densityBoxes && densityBoxes[r.boxKey]);
+}
+
+function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
+                       densityBoxes, densityLayers, isovalue) {
+  const builder = molstar.PluginExtensions.mvs.MVSData.createBuilder();
+  const structure = builder
+    .download({ url: sourceUrl })
+    .parse({ format: sourceFormat })
+    .modelStructure({});
+
+  // Protein cartoon (muted) — mirrors the old NGL "protein" representation.
+  if (layers.protein) {
+    structure.component({ selector: "protein" })
+      .representation({ type: "cartoon" })
+      .color({ color: "#64748b" })
+      .opacity({ opacity: 0.6 });
+  }
+
+  // Ligand residues (amber ball+stick). Falls back to all non-water
+  // hetero atoms when no explicit residue list is known, same as before.
+  if (layers.ligand) {
+    const ligandSelectors = ligandRes.map(residueSelector).filter(Boolean);
+    const ligComp = ligandSelectors.length
+      ? structure.component({ selector: ligandSelectors })
+      : structure.component({ selector: "ligand" });
+    ligComp.representation({ type: "ball_and_stick" }).color({ color: "#f59e0b" });
+    // Auto-focus the camera on the ligand on first load, like the old
+    // comp.autoView() call. MVS has no direct "licorice" type, so the
+    // binding site below reuses ball_and_stick, which is visually close.
+    if (focus && ligandSelectors.length) {
+      ligComp.focus({});
+    }
+  }
+
+  // Binding site (blue, semi-transparent ball+stick).
+  if (layers.bs && bsRes.length) {
+    const bsSelectors = bsRes.map(residueSelector).filter(Boolean);
+    if (bsSelectors.length) {
+      structure.component({ selector: bsSelectors })
+        .representation({ type: "ball_and_stick" })
+        .color({ color: "#5b7cf6" })
+        .opacity({ opacity: 0.85 });
+    }
+  }
+
+  // ── Segmented electron density ────────────────────────────────────────
+  // Each region (ligand / binding site / residues-to-examine) gets its
+  // own density query, scoped to that region's padded bounding box (see
+  // core.rsr_core.residues_bbox on the backend). This is the "masking"
+  // step from the spec: rather than loading the whole map and clipping it
+  // in the browser, we only ever ask EBI for the chunk of density that
+  // covers the region we want to show, which is both cheaper and avoids
+  // having to reimplement spatial masking client-side.
+  if (densityBoxes) {
+    for (const region of DENSITY_REGIONS) {
+      if (!densityLayers[region.layerKey]) continue;
+      const box = densityBoxes[region.boxKey];
+      if (!box || !box.min || !box.max) continue;
+
+      const densityUrl = densityBoxUrl(currentPdbId, box);
+      const volume = builder.download({ url: densityUrl }).parse({ format: "bcif" });
+      volume.volume({ channel_id: "2FO-FC" })
+        .representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
+        .color({ color: region.color })
+        .opacity({ opacity: 0.35 });
+    }
+  }
+
+  return builder.getState();
+}
+
+// Builds the URL for a region's density chunk. Points at our own backend
+// proxy (see edm_routes.py) by default, which caches repeated queries and
+// keeps a single external-network boundary; EBI's endpoint could also be
+// called directly from the browser if the proxy isn't deployed.
+function densityBoxUrl(pdbid, box, detail = 3) {
+  const min = box.min.join(",");
+  const max = box.max.join(",");
+  return `/api/density-box/${pdbid.toLowerCase()}?min=${min}&max=${max}&detail=${detail}`;
+}
+
+function populateResiduePicker(residues) {
+  if (!residues.length) {
+    viewerResiduePicker.classList.add("hidden");
+    return;
+  }
+  viewerLigandList.innerHTML = "";
+  residues.forEach(res => {
+    const btn = document.createElement("button");
+    btn.className = "residue-btn";
+    btn.textContent = res;
+    btn.addEventListener("click", () => {
+      const sel = residueSelector(res);
+      if (!sel || !viewerInstance) return;
+      viewerInstance.structureInteractivity({
+        elements: { auth_asym_id: sel.auth_asym_id, auth_seq_id: sel.auth_seq_id },
+        action: "focus",
+        focusOptions: { durationMs: 600 },
+      });
+    });
+    viewerLigandList.appendChild(btn);
+  });
+  viewerResiduePicker.classList.remove("hidden");
+}
+
+// Layer checkboxes: rebuild the MVS scene with the same structure/camera
+// but only the checked representations included. Because Mol* diffs the
+// state tree, this only touches the representations that actually change.
+["chkProtein", "chkLigand", "chkBS"].forEach((id, i) => {
+  const key = ["protein", "ligand", "bs"][i];
+  document.getElementById(id).addEventListener("change", function () {
+    layerState[key] = this.checked;
+    if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
+    applyMolstarScene({ focus: false, keepCamera: true })
+      .catch(err => console.error("[VHELIBS] Failed to update layer visibility:", err));
+  });
+});
+
+// Density region checkboxes (ligand / binding site / residues to examine).
+["chkDensityLigand", "chkDensityBS", "chkDensityRTE"].forEach((id, i) => {
+  const key = ["ligand", "bs", "rte"][i];
+  document.getElementById(id).addEventListener("change", function () {
+    densityLayerState[key] = this.checked;
+    if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
+    applyMolstarScene({ focus: false, keepCamera: true })
+      .catch(err => console.error("[VHELIBS] Failed to update density visibility:", err));
+  });
+});
+
+// Isovalue (contour level) slider — applies to all visible density
+// volumes at once. Debounced slightly so dragging doesn't spam reloads.
+let isovalueDebounce = null;
+isovalueSlider.addEventListener("input", function () {
+  currentIsovalue = parseFloat(this.value);
+  isovalueReadout.textContent = currentIsovalue.toFixed(1) + "σ";
+  if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
+  clearTimeout(isovalueDebounce);
+  isovalueDebounce = setTimeout(() => {
+    applyMolstarScene({ focus: false, keepCamera: true })
+      .catch(err => console.error("[VHELIBS] Failed to update isovalue:", err));
+  }, 150);
+});
+
+/**
+ * Convert a VHELIBS residue string like "ATP A  42" to a Mol* MVS
+ * ComponentExpression selector: { auth_asym_id, auth_seq_id }.
+ * Format: "RESNAME CHAIN RESNUM" with fixed-width padding, same layout
+ * used throughout the rest of the app (residue tags, binding-site lists).
+ */
+function residueSelector(res) {
   res = res.trim();
   const parts = res.split(/\s+/);
   if (parts.length >= 3) {
-    const resname = parts[0];
-    const chain   = parts[1];
-    const resnum  = parts[2];
-    return `(${resnum} and :${chain} and [${resname}])`;
+    const chain  = parts[1];
+    const resnum = parseInt(parts[2], 10);
+    if (Number.isNaN(resnum)) return null;
+    return { auth_asym_id: chain, auth_seq_id: resnum };
   }
   if (parts.length === 2) {
     const chain  = parts[0];
-    const resnum = parts[1];
-    return `(${resnum} and :${chain})`;
+    const resnum = parseInt(parts[1], 10);
+    if (Number.isNaN(resnum)) return null;
+    return { auth_asym_id: chain, auth_seq_id: resnum };
   }
-  return res;
+  return null;
 }
 
 // ── Utilities ─────────────────────────────────────────────

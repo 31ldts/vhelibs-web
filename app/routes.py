@@ -3,16 +3,25 @@
 Flask routes for VHELIBS web.
 
 Endpoints:
-  GET  /                  – serve the SPA
-  POST /api/analyse       – start an analysis job
-  GET  /api/status/<job>  – poll job progress / results
+  GET  /                        – serve the SPA
+  POST /api/analyse             – start an analysis job
+  GET  /api/status/<job>        – poll job progress / results
+  GET  /api/edm/<pdbid>         – full 2Fo-Fc map (CCP4), downloaded/cached on demand
+  GET  /api/density-box/<pdbid> – cropped density chunk (BinaryCIF) for a given region,
+                                   proxied + cached from EBI's density server
 """
+import os
 import threading
 import uuid
 import logging
-from flask import Blueprint, render_template, request, jsonify, current_app
+import requests
+from flask import (
+    Blueprint, render_template, request, jsonify, current_app,
+    Response, abort, send_file,
+)
 
 import core.pdb_utils as pdb_utils
+import core.eds_utils as eds_utils
 from core.rsr_core import AnalysisConfig, analyse_pdbids
 
 logger = logging.getLogger(__name__)
@@ -117,3 +126,76 @@ def status(job_id):
         "total": job["total"],
         "results": job["results"],
     })
+
+
+# ---------------------------------------------------------------------------
+# Electron density map (EDM) endpoints
+# ---------------------------------------------------------------------------
+
+@bp.route("/api/edm/<pdbid>")
+def edm(pdbid):
+    """Serve the full CCP4 2Fo-Fc map for pdbid, downloading it if needed."""
+    pdb_utils.set_cache_dir(current_app.config["CACHE_DIR"])
+    pdbid = pdbid.lower()
+    mapfile, _sigma = eds_utils.get_edm(pdbid)
+    if not mapfile or not os.path.isfile(mapfile):
+        abort(404, description=f"No electron density map available for {pdbid}")
+    return send_file(
+        mapfile,
+        mimetype="application/octet-stream",
+        as_attachment=False,
+        download_name=f"{pdbid}.ccp4",
+        conditional=True,  # enables Range requests / 304s for large maps
+    )
+
+
+def _parse_xyz(raw, name):
+    try:
+        parts = [float(v) for v in raw.split(",")]
+    except (AttributeError, ValueError):
+        parts = []
+    if len(parts) != 3:
+        abort(400, description=f"'{name}' must be 3 comma-separated numbers, e.g. 1.0,2.0,3.0")
+    return parts
+
+
+@bp.route("/api/density-box/<pdbid>")
+def density_box(pdbid):
+    """
+    Proxy a region query to EBI's density server and stream back the
+    BinaryCIF chunk. Query params:
+      min=minx,miny,minz   (required)
+      max=maxx,maxy,maxz   (required)
+      detail=0-6           (optional, default 3)
+    """
+    pdb_utils.set_cache_dir(current_app.config["CACHE_DIR"])
+    pdbid = pdbid.lower()
+    box_min = _parse_xyz(request.args.get("min", ""), "min")
+    box_max = _parse_xyz(request.args.get("max", ""), "max")
+    detail = request.args.get("detail", "3")
+
+    cachedir = os.path.join(pdb_utils.CACHEDIR, pdbid, "density-boxes")
+    os.makedirs(cachedir, exist_ok=True)
+    cachekey = "{}_{}_{}.bcif".format(
+        "-".join(f"{v:.2f}" for v in box_min),
+        "-".join(f"{v:.2f}" for v in box_max),
+        detail,
+    )
+    cachepath = os.path.join(cachedir, cachekey)
+
+    if not os.path.isfile(cachepath):
+        url = eds_utils.edm_box_url(
+            pdbid, {"min": box_min, "max": box_max}, detail=detail
+        )
+        try:
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+        except Exception as exc:
+            logger.error("density-box fetch failed for %s: %s", pdbid, exc)
+            abort(502, description="Could not fetch density data from EBI")
+        with open(cachepath, "wb") as fh:
+            fh.write(r.content)
+
+    with open(cachepath, "rb") as fh:
+        data = fh.read()
+    return Response(data, mimetype="application/octet-stream")
