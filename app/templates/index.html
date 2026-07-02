@@ -206,30 +206,84 @@
         <h2 class="card-title">About VHELIBS</h2>
         <p>
           <strong>VHELIBS</strong> (Validation Helper for LIgands and Binding Sites) analyses
-          protein–ligand complexes from PDB structures. It computes quality metrics
-          (RSR, RSCC, occupancy, R-free, etc.) for ligands and their binding sites,
-          and classifies them as <span class="badge badge-good">Good</span>,
+          protein–ligand complexes from PDB structures. For every ligand it finds, it evaluates
+          the ligand itself and its surrounding binding site against real-space and refinement
+          quality metrics, then classifies each as <span class="badge badge-good">Good</span>,
           <span class="badge badge-dubious">Dubious</span>, or
-          <span class="badge badge-bad">Bad</span> based on user-defined thresholds.
+          <span class="badge badge-bad">Bad</span> based on thresholds you control. Results can
+          then be inspected residue-by-residue in an interactive 3D viewer, together with the
+          experimental electron density around each region.
         </p>
+
+        <h3>How an analysis works</h3>
+        <p>
+          For each PDB ID, VHELIBS downloads the mmCIF model (from RCSB, or from PDB-REDO if that
+          option is checked) together with per-residue real-space validation statistics
+          (from PDBe's EDS validation report, or from PDB-REDO's own re-refinement data).
+          Ligands that are known solvents, buffers, ions, or crystallisation additives — or that
+          are covalently bound to the protein chain — are filtered out using the built-in
+          metal/blacklist tables rather than being scored as ligands. Remaining ligands are grouped
+          into complexes (covalently linked HETATM groups count as one ligand), and every residue
+          within the binding-site distance cutoff is collected as that ligand's binding site.
+        </p>
+
         <h3>Classification criteria</h3>
+        <p>Each residue accumulates one "fail point" per criterion it does not meet:</p>
         <table class="info-table">
           <thead><tr><th>Metric</th><th>Default threshold</th><th>Effect on score</th></tr></thead>
           <tbody>
-            <tr><td>RSR</td><td>&lt; 0.24 → good, 0.24–0.40 → +1, &gt; 0.40 → +2</td><td>+1 or +2</td></tr>
-            <tr><td>RSCC</td><td>&gt; 0.9</td><td>+1 if below</td></tr>
-            <tr><td>Occupancy</td><td>= 1.0</td><td>+1 if below</td></tr>
+            <tr><td>RSR (real-space R-factor)</td><td>≤ 0.24 good · 0.24–0.40 → +1 · &gt; 0.40 → +2</td><td>+1 or +2</td></tr>
+            <tr><td>RSCC (real-space correlation coefficient)</td><td>&gt; 0.9</td><td>+1 if below</td></tr>
+            <tr><td>Occupancy</td><td>= 1.0</td><td>+1 if below · flagged separately if &gt; 1.0</td></tr>
             <tr><td>R-free</td><td>&lt; 1.0</td><td>+1 if above</td></tr>
-            <tr><td>Tolerance</td><td>2</td><td>score ≤ tolerance → Dubious; &gt; → Bad</td></tr>
           </tbody>
         </table>
+        <p>
+          A residue's total score decides its bucket: <strong>0</strong> → Good,
+          <strong>1 to Tolerance</strong> → Dubious, <strong>above Tolerance</strong> → Bad
+          (Tolerance defaults to 2). A ligand or binding site then inherits the worst
+          classification among its own residues: it is <em>Bad</em> if any residue is Bad,
+          otherwise <em>Dubious</em> if any residue is Dubious, otherwise <em>Good</em>.
+          Residues with missing validation data, or with occupancy above 1.0, are treated as an
+          error condition rather than scored numerically, and are listed separately as rejected.
+        </p>
+
+        <h3>Advanced (optional) checks</h3>
+        <p>
+          These are disabled by default and can be turned on under <em>Advanced options</em> on
+          the Analysis tab. Each adds its own +1 fail point when the residue's structure fails it:
+        </p>
+        <table class="info-table">
+          <thead><tr><th>Metric</th><th>Default threshold</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>OWAB</td><td>&lt; 50</td><td>Occupancy-weighted average B-factor, per residue</td></tr>
+            <tr><td>Resolution</td><td>≤ 3.5 Å</td><td>Structure-wide, from RCSB/PDB-REDO refinement stats</td></tr>
+            <tr><td>R-diff</td><td>≤ 0.05</td><td>|R-free − R-work|, flags possible over-refinement</td></tr>
+            <tr><td>DPI</td><td>&lt; 0.42</td><td>Diffraction-component precision index, estimated from cell volume, atom count, reflection count and R-free</td></tr>
+          </tbody>
+        </table>
+
+        <h3>3D Viewer</h3>
+        <p>
+          The Viewer tab renders the model with <a href="https://molstar.org" target="_blank">Mol*</a>,
+          with independent, toggleable layers for the protein, ligand, and binding site. When a
+          structure has an associated 2Fo-Fc electron density map, it can also be overlaid,
+          segmented per region (ligand / binding site / residues to examine) rather than shown as
+          one whole-model surface. Density is streamed on demand from EBI's density server as small
+          boxes around each region and clipped to a sphere around every atom, so you're only ever
+          looking at density that belongs to the residues you're inspecting. The contour level
+          (isovalue, in σ) and the per-atom mask radius are both adjustable live from the sidebar.
+        </p>
+
         <h3>Data sources</h3>
         <ul>
           <li>Structure files: <a href="https://www.rcsb.org" target="_blank">RCSB PDB</a> (mmCIF format)</li>
           <li>Validation statistics: <a href="https://www.ebi.ac.uk/pdbe" target="_blank">PDBe validation reports</a></li>
-          <li>Re-refined structures: <a href="https://pdb-redo.eu" target="_blank">PDB-REDO</a></li>
+          <li>Re-refined structures &amp; statistics: <a href="https://pdb-redo.eu" target="_blank">PDB-REDO</a> (optional alternative to RCSB)</li>
+          <li>Electron density maps: EBI's density server (segmented 2Fo-Fc/Fo-Fc volumes)</li>
           <li>3D visualisation: <a href="https://molstar.org" target="_blank">Mol* Viewer</a></li>
         </ul>
+
         <h3>Citation</h3>
         <p>
           Cereto-Massagué A et al. <em>VHELIBS: a validation helper for ligands and

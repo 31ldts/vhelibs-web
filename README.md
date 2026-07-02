@@ -14,7 +14,7 @@ Then open <http://localhost:8000> in your browser.
 ## Requirements
 
 - Python 3.8+
-- Packages: `flask`, `requests`, `pdbx`
+- Packages: `flask`, `requests`, `gemmi`
 
 ## Usage
 
@@ -57,7 +57,7 @@ vhelibs-web/
 
 | Old file | New location | Key changes |
 |----------|-------------|-------------|
-| `rsr_analysis.py` | `core/rsr_core.py` + `app/routes.py` | Removed argparse/multiprocessing; returns dicts |
+| `rsr_analysis.py` | `core/rsr_core.py` + `app/routes.py` | Removed argparse/multiprocessing; returns dicts; mmCIF parsing now via `gemmi` instead of `pdbx`; adds PDB-REDO, OWAB/resolution/R-diff/DPI checks, and per-region density boxes/atoms for the 3D viewer |
 | `PDBfiles.py` | `core/pdb_utils.py` | `urllib` → `requests`; proper SSL |
 | `EDS_parser.py` | `core/eds_utils.py` | Same; proper SSL; logging |
 | `pdb_redo.py` | `core/pdb_redo_utils.py` | Removed Java locale hack |
@@ -87,9 +87,30 @@ vhelibs-web/
   "occupancy_min": 1.0,
   "tolerance": 2,
   "distance": 4.5,
-  "use_pdb_redo": false
+  "use_pdb_redo": false,
+  "check_owab": false,
+  "owab_max": 50,
+  "check_resolution": false,
+  "resolution_max": 3.5,
+  "use_rdiff": false,
+  "rdiff_max": 0.05,
+  "use_dpi": false,
+  "dpi_max": 0.42
 }
 ```
+
+The last eight fields are the *advanced* (opt-in) checks, off by default. When enabled, each
+adds its own pass/fail criterion on top of the core RSR/RSCC/occupancy/R-free scoring:
+
+| Field | Checks | Notes |
+|-------|--------|-------|
+| `check_owab` / `owab_max` | Occupancy-weighted average B-factor, per residue | fails if OWAB ≥ `owab_max` |
+| `check_resolution` / `resolution_max` | Structure-wide resolution | from RCSB or PDB-REDO refinement stats |
+| `use_rdiff` / `rdiff_max` | \|R-free − R-work\| | flags possible over-refinement |
+| `use_dpi` / `dpi_max` | Diffraction-component precision index | estimated from cell volume, atom count, reflection count and R-free |
+
+When `use_pdb_redo` is true, both the structure model and the per-residue validation statistics
+are fetched from [PDB-REDO](https://pdb-redo.eu) instead of RCSB/PDBe.
 
 **Response:**
 
@@ -125,7 +146,17 @@ vhelibs-web/
           "source": "PDB",
           "ligand_score": 0,
           "binding_site_score": 0,
-          "low_occupancy": []
+          "low_occupancy": [],
+          "density_boxes": {
+            "ligand": { "min": [x, y, z], "max": [x, y, z] },
+            "binding_site": { "min": [x, y, z], "max": [x, y, z] },
+            "residues_to_examine": { "min": [x, y, z], "max": [x, y, z] }
+          },
+          "density_atoms": {
+            "ligand": [{ "residue": "REA A  200", "center": [x, y, z] }, ...],
+            "binding_site": [...],
+            "residues_to_examine": [...]
+          }
         }
       ],
       "rejected": {},
@@ -134,6 +165,42 @@ vhelibs-web/
   ]
 }
 ```
+
+`density_boxes` gives a padded bounding box per region, used to size the on-demand download
+window from EBI's density server (see `core/eds_utils.py:edm_box_url`). `density_atoms` gives
+the actual per-atom coordinates of each region, used by the 3D viewer to clip the displayed
+density to a small sphere around each atom rather than showing everything inside the box.
+Both are only populated for X-ray entries with usable validation/density data; a region with no
+atoms (e.g. a fully solvent-exposed ligand with `distance: 0`) yields `null`/an empty list.
+
+## Classification
+
+Each ligand and binding-site residue is scored against the active criteria; every criterion it
+fails adds one "fail point":
+
+| Metric | Default threshold | Effect on score |
+|--------|-------------------|------------------|
+| RSR | ≤ 0.24 good · 0.24–0.40 → +1 · > 0.40 → +2 | +1 or +2 |
+| RSCC | > 0.9 | +1 if below |
+| Occupancy | = 1.0 | +1 if below · error if > 1.0 |
+| R-free | < 1.0 | +1 if above |
+
+A residue's total score maps to a bucket: `0` → **Good**, `1..tolerance` → **Dubious**,
+`> tolerance` → **Bad** (`tolerance` defaults to 2). A ligand or binding site then takes the
+worst classification of its own residues (any Bad → Bad; else any Dubious → Dubious; else Good).
+Residues with missing validation data are excluded from scoring and reported under `rejected`
+instead. Enabling any of the advanced checks (OWAB, resolution, R-diff, DPI — see the API section
+above) adds further +1 fail points on the same scale.
+
+## 3D Viewer
+
+The Viewer tab renders the model with [Mol*](https://molstar.org), with independent toggleable
+layers for protein, ligand, and binding site. When a 2Fo-Fc electron density map is available,
+it can be overlaid per region (ligand / binding site / residues to examine) instead of as one
+whole-model surface: density is streamed on demand from EBI's density server as small boxes
+around each region (`density_boxes`) and clipped to a sphere around every atom of that region
+(`density_atoms`), so only density belonging to the residues being inspected is shown. Both the
+contour level (isovalue, in σ) and the per-atom mask radius are adjustable live from the sidebar.
 
 ## Citation
 
