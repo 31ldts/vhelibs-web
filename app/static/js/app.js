@@ -254,7 +254,8 @@ function buildResultCard(r) {
           data-ligands='${JSON.stringify(l.ligand_residues)}'
           data-bs='${JSON.stringify(l.binding_site_residues)}'
           data-rte='${JSON.stringify(l.residues_to_examine || [])}'
-          data-boxes='${JSON.stringify(l.density_boxes || {})}'>
+          data-boxes='${JSON.stringify(l.density_boxes || {})}'
+          data-atoms='${JSON.stringify(l.density_atoms || {})}'>
           View 3D
         </button>
       </div>
@@ -306,7 +307,8 @@ function buildResultCard(r) {
       const bs      = JSON.parse(btn.dataset.bs || "[]");
       const rte     = JSON.parse(btn.dataset.rte || "[]");
       const boxes   = JSON.parse(btn.dataset.boxes || "{}");
-      openViewer(pdbid, ligands, bs, rte, boxes);
+      const atoms   = JSON.parse(btn.dataset.atoms || "{}");
+      openViewer(pdbid, ligands, bs, rte, boxes, atoms);
     });
   });
 
@@ -334,6 +336,9 @@ let currentLigandRes  = [];
 let currentBsRes      = [];
 let currentRteRes     = [];
 let currentDensityBoxes = null; // {ligand, binding_site, residues_to_examine} bboxes, or null if unknown
+let currentDensityAtoms = null; // {ligand, binding_site, residues_to_examine} per-atom centers, or null
+let currentAtomRadius = 1.6; // Å, radius of the per-atom density clip sphere (user-adjustable)
+let currentFocusRes = null; // residue string clicked in the "residues to examine" list, or null
 const layerState = { protein: true, ligand: true, bs: true }; // structure checkbox state
 const densityLayerState = { ligand: true, bs: true, rte: true }; // density checkbox state
 let currentIsovalue = 1.0; // relative sigma units
@@ -346,6 +351,8 @@ const viewerResiduePicker = document.getElementById("viewerResiduePicker");
 const viewerDensityControls = document.getElementById("viewerDensityControls");
 const isovalueSlider      = document.getElementById("isovalueSlider");
 const isovalueReadout     = document.getElementById("isovalueReadout");
+const atomRadiusSlider    = document.getElementById("atomRadiusSlider");
+const atomRadiusReadout   = document.getElementById("atomRadiusReadout");
 
 function pinContainerSize() {
   // Mol*'s WebGL canvas needs the container to report a real, non-zero
@@ -409,16 +416,16 @@ loadStructureBtn.addEventListener("click", () => {
   if (isLoadingStructure) return;
   const pdbid = viewerPdbInput.value.trim().toUpperCase();
   if (!pdbid) return;
-  loadMolstarStructure(pdbid, [], [], [], null);
+  loadMolstarStructure(pdbid, [], [], [], null, null);
 });
 
-function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes) {
+function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms) {
   showTab("viewer");
   viewerPdbInput.value = pdbid.toUpperCase();
-  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null);
+  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null, densityAtoms || null);
 }
 
-async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes) {
+async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms) {
   if (isLoadingStructure) {
     console.warn("loadMolstarStructure called while a load is already in progress — ignoring.");
     return;
@@ -434,6 +441,9 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
   currentBsRes = bsRes;
   currentRteRes = rteRes || [];
   currentDensityBoxes = densityBoxes || null;
+  currentDensityAtoms = densityAtoms || null;
+  currentAtomRadius = 1.6;
+  currentFocusRes = null;
   layerState.protein = true;
   layerState.ligand = true;
   layerState.bs = true;
@@ -449,6 +459,8 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
   document.getElementById("chkDensityRTE").checked = true;
   isovalueSlider.value = currentIsovalue;
   isovalueReadout.textContent = currentIsovalue.toFixed(1) + "σ";
+  atomRadiusSlider.value = currentAtomRadius;
+  atomRadiusReadout.textContent = currentAtomRadius.toFixed(1) + " Å";
 
   try {
     await initMolstar();
@@ -504,7 +516,8 @@ async function applyMolstarScene({ focus, keepCamera }) {
     try {
       const mvsData = buildMvsData(
         src.url, src.format, currentLigandRes, currentBsRes, layerState, focus,
-        currentDensityBoxes, densityLayerState, currentIsovalue
+        currentDensityBoxes, currentDensityAtoms, currentAtomRadius, densityLayerState, currentIsovalue,
+        currentFocusRes
       );
       await molstar.PluginExtensions.mvs.loadMVS(viewerInstance.plugin, mvsData, {
         replaceExisting: true,
@@ -533,7 +546,8 @@ function hasAnyBox(densityBoxes) {
 }
 
 function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
-                       densityBoxes, densityLayers, isovalue) {
+                       densityBoxes, densityAtoms, atomRadius, densityLayers, isovalue,
+                       focusResidue) {
   const builder = molstar.PluginExtensions.mvs.MVSData.createBuilder();
   const structure = builder
     .download({ url: sourceUrl })
@@ -559,8 +573,23 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
     // Auto-focus the camera on the ligand on first load, like the old
     // comp.autoView() call. MVS has no direct "licorice" type, so the
     // binding site below reuses ball_and_stick, which is visually close.
-    if (focus && ligandSelectors.length) {
+    // Skipped when the person has explicitly picked a residue to examine
+    // below — that selection takes priority over the default ligand focus.
+    if (focus && !focusResidue && ligandSelectors.length) {
       ligComp.focus({});
+    }
+  }
+
+  // A residue clicked in the "Residues to examine" list: highlight it in
+  // white and point the camera at it, overriding the default ligand focus.
+  if (focusResidue) {
+    const sel = residueSelector(focusResidue);
+    if (sel) {
+      const focusComp = structure.component({ selector: sel });
+      focusComp.representation({ type: "ball_and_stick" })
+        .color({ color: "#ffffff" })
+        .opacity({ opacity: 1 });
+      focusComp.focus({});
     }
   }
 
@@ -583,18 +612,67 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
   // in the browser, we only ever ask EBI for the chunk of density that
   // covers the region we want to show, which is both cheaper and avoids
   // having to reimplement spatial masking client-side.
+  // Hard cap on clip representations per region — one Mol* representation
+  // node is created per atom, and a very large binding site (hundreds of
+  // atoms) would otherwise generate an excessive number of GPU draws. This
+  // keeps things responsive while still giving true per-atom masking for
+  // the vast majority of ligands/binding sites.
+  const MAX_CLIP_ATOMS_PER_REGION = 300;
+
   if (densityBoxes) {
     for (const region of DENSITY_REGIONS) {
       if (!densityLayers[region.layerKey]) continue;
       const box = densityBoxes[region.boxKey];
       if (!box || !box.min || !box.max) continue;
 
+      // The box only sizes the *download window* — the EBI density server
+      // has no per-atom masking, so the box for e.g. "binding site" also
+      // contains the ligand and unrelated solvent. To actually show density
+      // that differs per residue/atom, the same downloaded volume is
+      // rendered as one representation per atom, each clipped to a small
+      // sphere of `atomRadius` around that atom (see
+      // rsr_core.residue_atom_centers). No extra network cost: it's one
+      // download, just multiple clipped representations of it.
       const densityUrl = densityBoxUrl(currentPdbId, box);
-      const volume = builder.download({ url: densityUrl }).parse({ format: "bcif" });
-      volume.volume({ channel_id: "2FO-FC" })
-        .representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
-        .color({ color: region.color })
-        .opacity({ opacity: 0.35 });
+      const volume = builder.download({ url: densityUrl }).parse({ format: "bcif" })
+        .volume({ channel_id: "2FO-FC" });
+
+      let atoms = (densityAtoms && densityAtoms[region.boxKey]) || [];
+      if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
+        console.warn(`[VHELIBS] "${region.boxKey}" has ${atoms.length} atoms — capping per-atom density masking to ${MAX_CLIP_ATOMS_PER_REGION}.`);
+        atoms = atoms.slice(0, MAX_CLIP_ATOMS_PER_REGION);
+      }
+
+      const firstRep = volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true });
+      // volume-representation .clip() requires Mol* >= 5.0 (see index.html
+      // comment). Detected once per representation rather than assumed, so
+      // an older/unexpected Mol* build degrades gracefully instead of
+      // throwing and aborting the whole structure load.
+      //
+      // IMPORTANT: a clip node's default behaviour is to cut its shape OUT
+      // of the representation (hide what's inside, keep what's outside) —
+      // like slicing through a structure to see inside it. We want the
+      // opposite: keep only what's inside each atom's sphere and hide
+      // everything else, so `invert: true` is required below, otherwise
+      // each clip just punches an invisible pinhole out of the full box
+      // and the whole box still renders.
+      const supportsClip = atoms.length > 0 && typeof firstRep.clip === "function";
+
+      if (supportsClip) {
+        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 })
+          .clip({ type: "sphere", center: atoms[0].center, radius: atomRadius, invert: true });
+        for (let i = 1; i < atoms.length; i++) {
+          volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
+            .color({ color: region.color })
+            .opacity({ opacity: 0.35 })
+            .clip({ type: "sphere", center: atoms[i].center, radius: atomRadius, invert: true });
+        }
+      } else {
+        if (atoms.length) {
+          console.warn(`[VHELIBS] This Mol* build has no volume clip() support (requires Mol* >= 5.0) — showing the unmasked region box for "${region.boxKey}" instead of per-atom density.`);
+        }
+        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 });
+      }
     }
   }
 
@@ -621,14 +699,18 @@ function populateResiduePicker(residues) {
     const btn = document.createElement("button");
     btn.className = "residue-btn";
     btn.textContent = res;
+    btn.dataset.residue = res;
     btn.addEventListener("click", () => {
-      const sel = residueSelector(res);
-      if (!sel || !viewerInstance) return;
-      viewerInstance.structureInteractivity({
-        elements: { auth_asym_id: sel.auth_asym_id, auth_seq_id: sel.auth_seq_id },
-        action: "focus",
-        focusOptions: { durationMs: 600 },
+      if (!residueSelector(res) || !currentPdbId || isLoadingStructure || !viewerInstance) return;
+      currentFocusRes = res;
+      viewerLigandList.querySelectorAll(".residue-btn").forEach(b => {
+        const isActive = b.dataset.residue === res;
+        b.classList.toggle("active", isActive);
+        // Inline fallback in case style.css has no .residue-btn.active rule.
+        b.style.outline = isActive ? "2px solid #fff" : "";
       });
+      applyMolstarScene({ focus: false, keepCamera: false })
+        .catch(err => console.error("[VHELIBS] Failed to focus residue:", err));
     });
     viewerLigandList.appendChild(btn);
   });
@@ -670,6 +752,22 @@ isovalueSlider.addEventListener("input", function () {
   isovalueDebounce = setTimeout(() => {
     applyMolstarScene({ focus: false, keepCamera: true })
       .catch(err => console.error("[VHELIBS] Failed to update isovalue:", err));
+  }, 150);
+});
+
+// Atom mask radius slider — controls the radius of the per-atom clip
+// sphere used to mask density (see buildMvsData). Larger radius = more of
+// the surrounding density bleeds in per atom; smaller = tighter to the
+// atom itself. Debounced the same way as the isovalue slider.
+let atomRadiusDebounce = null;
+atomRadiusSlider.addEventListener("input", function () {
+  currentAtomRadius = parseFloat(this.value);
+  atomRadiusReadout.textContent = currentAtomRadius.toFixed(1) + " Å";
+  if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
+  clearTimeout(atomRadiusDebounce);
+  atomRadiusDebounce = setTimeout(() => {
+    applyMolstarScene({ focus: false, keepCamera: true })
+      .catch(err => console.error("[VHELIBS] Failed to update atom mask radius:", err));
   }, 150);
 });
 

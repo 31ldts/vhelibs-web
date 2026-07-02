@@ -5,10 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VHELIBS – Validation Helper for LIgands and Binding Sites</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  <!-- Mol* Viewer (WebGL 3D structure viewer). Pinned to the 4.x line;
-       bump deliberately after testing rather than tracking @latest. -->
-  <script src="https://cdn.jsdelivr.net/npm/molstar@4/build/viewer/molstar.js"></script>
-  <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/molstar@4/build/viewer/molstar.css" />
+  <!-- Mol* Viewer (WebGL 3D structure viewer). Pinned to the 5.x line;
+       bump deliberately after testing rather than tracking @latest.
+       NOTE: bumped from 4.x -> 5.x because per-residue density masking
+       (volume representation .clip()) requires Mol* >= 5.0; it does not
+       exist in the 4.x MolViewSpec grammar. -->
+  <script src="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.js"></script>
+  <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.css" />
 </head>
 <body>
   <header class="site-header">
@@ -176,6 +179,10 @@
             <label class="th-label" style="margin-top:8px">
               Contour level (isovalue) <span id="isovalueReadout">1.0σ</span>
               <input type="range" id="isovalueSlider" min="0.5" max="3.0" step="0.1" value="1.0" class="th-input" />
+            </label>
+            <label class="th-label" style="margin-top:8px">
+              Atom mask radius <span id="atomRadiusReadout">1.6 Å</span>
+              <input type="range" id="atomRadiusSlider" min="0.5" max="4.0" step="0.1" value="1.6" class="th-input" />
             </label>
           </div>
           <div id="viewerResiduePicker" class="residue-picker hidden">

@@ -111,9 +111,39 @@ def _bbox(atoms, padding=DEFAULT_BOX_PADDING):
 
 
 def residues_bbox(residues, res_atom_dict, ligand_res_atom_dict, padding=DEFAULT_BOX_PADDING):
-    """Padded bounding box covering all atoms of the given residue keys."""
+    """Padded bounding box covering all atoms of the given residue keys.
+
+    This is only used to size the *download window* sent to the density
+    server (which only supports box/cell queries, not per-atom masking) —
+    it is intentionally loose, since the whole point is to have enough
+    margin to render a good isosurface. It should NOT be used directly to
+    decide what density is *shown*, since a box covering e.g. a binding
+    site will inevitably also cover the ligand and unrelated solvent; see
+    `residue_atom_centers` for the per-atom masks used for that.
+    """
     atoms = _atoms_for_residues(residues, res_atom_dict, ligand_res_atom_dict)
     return _bbox(atoms, padding)
+
+
+def residue_atom_centers(residues, res_atom_dict, ligand_res_atom_dict):
+    """
+    Flat list of every atom's coordinates for the given residue keys, one
+    entry per atom: {"residue": res, "center": [x, y, z]}.
+
+    Used for true per-atom density masking in the viewer: the frontend
+    clips the isosurface to a small sphere around *each* atom (radius
+    controlled by a UI slider), instead of one region-wide box or a single
+    per-residue sphere. Since the ligand/binding-site/residues-to-examine
+    atom lists are already known from the analysis, this lets the density
+    shown for each layer trace the actual atoms of that layer, rather than
+    everything inside a loose enclosing volume.
+    """
+    atoms_out = []
+    for res in residues:
+        atoms = res_atom_dict.get(res) or ligand_res_atom_dict.get(res) or ()
+        for a in atoms:
+            atoms_out.append({"residue": res, "center": list(a.xyz)})
+    return atoms_out
 
 
 def _dpi(a, b, c, alpha, beta, gamma, natoms, reflections, rfree):
@@ -594,6 +624,14 @@ def parse_binding_site(pdbid, cfg=None):
                 "ligand": residues_bbox(ligandresidues, res_atom_dict, ligand_res_atom_dict),
                 "binding_site": residues_bbox(binding_site, res_atom_dict, ligand_res_atom_dict),
                 "residues_to_examine": residues_bbox(rte, res_atom_dict, ligand_res_atom_dict),
+            },
+            # Per-atom coordinates used to actually differentiate the
+            # density shown for each region (see residue_atom_centers
+            # docstring) — the boxes above only size the download window.
+            "density_atoms": {
+                "ligand": residue_atom_centers(ligandresidues, res_atom_dict, ligand_res_atom_dict),
+                "binding_site": residue_atom_centers(binding_site, res_atom_dict, ligand_res_atom_dict),
+                "residues_to_examine": residue_atom_centers(rte, res_atom_dict, ligand_res_atom_dict),
             },
         })
 
