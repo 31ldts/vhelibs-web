@@ -48,6 +48,43 @@ pdbInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.ctrlKey) startAnalysis();
 });
 
+// ── Load PDB IDs from a file ──────────────────────────────
+// Accepts plain text/CSV/TSV files: any mix of commas, whitespace or
+// newlines works, same as manual textarea input, since it's just merged
+// into pdbInput.value and sent to /api/analyse unchanged — the backend
+// (and gatherConfig above) already knows how to split that string.
+const pdbFileInput = document.getElementById("pdbFileInput");
+const pdbFileName  = document.getElementById("pdbFileName");
+
+pdbFileInput.addEventListener("change", () => {
+  const file = pdbFileInput.files && pdbFileInput.files[0];
+  if (!file) return;
+
+  const MAX_SIZE = 1024 * 1024; // 1 MB is more than enough for a list of PDB IDs
+  if (file.size > MAX_SIZE) {
+    alert("File is too large. Please provide a plain text file with PDB IDs.");
+    pdbFileInput.value = "";
+    return;
+  }
+
+  pdbFileName.textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result || "").trim();
+    if (!text) {
+      alert(`"${file.name}" appears to be empty.`);
+      return;
+    }
+    const existing = pdbInput.value.trim();
+    pdbInput.value = existing ? existing + "\n" + text : text;
+  };
+  reader.onerror = () => alert(`Could not read file "${file.name}".`);
+  reader.readAsText(file);
+
+  // Reset so re-selecting the same file still fires 'change'.
+  pdbFileInput.value = "";
+});
+
 function gatherConfig() {
   const v = id => document.getElementById(id).value;
   const b = id => document.getElementById(id).checked;
@@ -530,8 +567,8 @@ async function applyMolstarScene({ focus, keepCamera }) {
       lastErr = err;
     }
   }
-  throw lastErr || new Error("Unknown Mol* load error");
-}
+    throw lastErr || new Error("Unknown Mol* load error");
+  }
 
 // Region -> {color, layerKey, boxKey} mapping shared by buildMvsData and
 // the checkbox wiring below.
@@ -612,12 +649,12 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
   // in the browser, we only ever ask EBI for the chunk of density that
   // covers the region we want to show, which is both cheaper and avoids
   // having to reimplement spatial masking client-side.
-  // Hard cap on clip representations per region — one Mol* representation
-  // node is created per atom, and a very large binding site (hundreds of
-  // atoms) would otherwise generate an excessive number of GPU draws. This
-  // keeps things responsive while still giving true per-atom masking for
-  // the vast majority of ligands/binding sites.
-  const MAX_CLIP_ATOMS_PER_REGION = 300;
+// Hard cap on clip representations per region — one Mol* representation
+// node is created per atom, and a very large binding site (hundreds of
+// atoms) would otherwise generate an excessive number of GPU draws. This
+// keeps things responsive while still giving true per-atom masking for
+// the vast majority of ligands/binding sites.
+const MAX_CLIP_ATOMS_PER_REGION = 300;
 
   if (densityBoxes) {
     for (const region of DENSITY_REGIONS) {
@@ -638,42 +675,42 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
         .volume({ channel_id: "2FO-FC" });
 
       let atoms = (densityAtoms && densityAtoms[region.boxKey]) || [];
-      if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
-        console.warn(`[VHELIBS] "${region.boxKey}" has ${atoms.length} atoms — capping per-atom density masking to ${MAX_CLIP_ATOMS_PER_REGION}.`);
-        atoms = atoms.slice(0, MAX_CLIP_ATOMS_PER_REGION);
-      }
-
-      const firstRep = volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true });
-      // volume-representation .clip() requires Mol* >= 5.0 (see index.html
-      // comment). Detected once per representation rather than assumed, so
-      // an older/unexpected Mol* build degrades gracefully instead of
-      // throwing and aborting the whole structure load.
-      //
-      // IMPORTANT: a clip node's default behaviour is to cut its shape OUT
-      // of the representation (hide what's inside, keep what's outside) —
-      // like slicing through a structure to see inside it. We want the
-      // opposite: keep only what's inside each atom's sphere and hide
-      // everything else, so `invert: true` is required below, otherwise
-      // each clip just punches an invisible pinhole out of the full box
-      // and the whole box still renders.
-      const supportsClip = atoms.length > 0 && typeof firstRep.clip === "function";
-
-      if (supportsClip) {
-        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 })
-          .clip({ type: "sphere", center: atoms[0].center, radius: atomRadius, invert: true });
-        for (let i = 1; i < atoms.length; i++) {
-          volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
-            .color({ color: region.color })
-            .opacity({ opacity: 0.35 })
-            .clip({ type: "sphere", center: atoms[i].center, radius: atomRadius, invert: true });
-        }
-      } else {
-        if (atoms.length) {
-          console.warn(`[VHELIBS] This Mol* build has no volume clip() support (requires Mol* >= 5.0) — showing the unmasked region box for "${region.boxKey}" instead of per-atom density.`);
-        }
-        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 });
-      }
+    if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
+      console.warn(`[VHELIBS] "${region.boxKey}" has ${atoms.length} atoms — capping per-atom density masking to ${MAX_CLIP_ATOMS_PER_REGION}.`);
+      atoms = atoms.slice(0, MAX_CLIP_ATOMS_PER_REGION);
     }
+
+    const firstRep = volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true });
+    // volume-representation .clip() requires Mol* >= 5.0 (see index.html
+    // comment). Detected once per representation rather than assumed, so
+    // an older/unexpected Mol* build degrades gracefully instead of
+    // throwing and aborting the whole structure load.
+    //
+    // IMPORTANT: a clip node's default behaviour is to cut its shape OUT
+    // of the representation (hide what's inside, keep what's outside) —
+    // like slicing through a structure to see inside it. We want the
+    // opposite: keep only what's inside each atom's sphere and hide
+    // everything else, so `invert: true` is required below, otherwise
+    // each clip just punches an invisible pinhole out of the full box
+    // and the whole box still renders.
+    const supportsClip = atoms.length > 0 && typeof firstRep.clip === "function";
+
+    if (supportsClip) {
+      firstRep.color({ color: region.color }).opacity({ opacity: 0.35 })
+        .clip({ type: "sphere", center: atoms[0].center, radius: atomRadius, invert: true });
+      for (let i = 1; i < atoms.length; i++) {
+        volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
+          .color({ color: region.color })
+          .opacity({ opacity: 0.35 })
+          .clip({ type: "sphere", center: atoms[i].center, radius: atomRadius, invert: true });
+      }
+    } else {
+      if (atoms.length) {
+        console.warn(`[VHELIBS] This Mol* build has no volume clip() support (requires Mol* >= 5.0) — showing the unmasked region box for "${region.boxKey}" instead of per-atom density.`);
+      }
+      firstRep.color({ color: region.color }).opacity({ opacity: 0.35 });
+    }
+  }
   }
 
   return builder.getState();

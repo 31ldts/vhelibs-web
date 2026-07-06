@@ -44,6 +44,13 @@
           <textarea id="pdbInput" class="pdb-textarea"
             placeholder="Enter PDB IDs separated by commas, spaces or newlines&#10;e.g. 1cbs, 3dzu, 4hhb"></textarea>
           <div class="input-row">
+            <label class="btn btn-secondary" style="cursor:pointer">
+              Load from file…
+              <input type="file" id="pdbFileInput" accept=".txt,.csv,.list,.tsv" hidden />
+            </label>
+            <span id="pdbFileName" class="th-hint"></span>
+          </div>
+          <div class="input-row">
             <label class="checkbox-label">
               <input type="checkbox" id="usePdbRedo" />
               Use PDB-REDO structures
