@@ -79,7 +79,7 @@ vhelibs-web/
 
 ```json
 {
-  "pdbids": "1cbs 3dzu",
+  "pdbids": "1cbs 3dzu P00734",
   "rsr_upper": 0.4,
   "rsr_lower": 0.24,
   "rscc_min": 0.9,
@@ -98,6 +98,12 @@ vhelibs-web/
   "dpi_max": 0.42
 }
 ```
+
+`pdbids` accepts PDB IDs, UniProt accessions, or a mix of both, separated by commas, whitespace,
+or newlines. Each UniProt accession (e.g. `P00734`) is resolved via the RCSB Search API to every
+PDB entry whose polymer entities reference it, and every one of those entries is queued for
+analysis alongside any plain PDB IDs given. If a UniProt accession doesn't resolve to any entry,
+it's omitted and reported back in an optional `warnings` array in the response (see below).
 
 The last eight fields are the *advanced* (opt-in) checks, off by default. When enabled, each
 adds its own pass/fail criterion on top of the core RSR/RSCC/occupancy/R-free scoring:
@@ -118,6 +124,16 @@ are fetched from [PDB-REDO](https://pdb-redo.eu) instead of RCSB/PDBe.
 { "job_id": "uuid", "total": 2 }
 ```
 
+If `pdbids` included a UniProt accession that couldn't be resolved to any PDB entry, the
+response also includes:
+
+```json
+{ "job_id": "uuid", "total": 2, "warnings": ["No PDB entries found for UniProt accession P99999"] }
+```
+
+`total` reflects the number of PDB entries actually queued for analysis, i.e. after expanding
+any UniProt accessions in the request.
+
 ### `GET /api/status/<job_id>`
 
 **Response while running:**
@@ -136,6 +152,7 @@ are fetched from [PDB-REDO](https://pdb-redo.eu) instead of RCSB/PDBe.
   "results": [
     {
       "pdbid": "1cbs",
+      "uniprot": "P00734",
       "ligands": [
         {
           "ligand_residues": ["REA A  200"],
@@ -147,6 +164,7 @@ are fetched from [PDB-REDO](https://pdb-redo.eu) instead of RCSB/PDBe.
           "ligand_score": 0,
           "binding_site_score": 0,
           "low_occupancy": [],
+          "other_ligands": [],
           "density_boxes": {
             "ligand": { "min": [x, y, z], "max": [x, y, z] },
             "binding_site": { "min": [x, y, z], "max": [x, y, z] },
@@ -172,6 +190,14 @@ the actual per-atom coordinates of each region, used by the 3D viewer to clip th
 density to a small sphere around each atom rather than showing everything inside the box.
 Both are only populated for X-ray entries with usable validation/density data; a region with no
 atoms (e.g. a fully solvent-exposed ligand with `distance: 0`) yields `null`/an empty list.
+
+`uniprot` is the UniProt accession that produced this PDB entry, or `null` if it was given
+directly as a PDB ID. `other_ligands` lists residues belonging to any *other* ligand present in
+the same structure (e.g. a second ligand close enough to have been pulled into this one's
+binding site) — these still count towards this ligand's own scoring, but are deliberately
+excluded from `binding_site_residues`, `residues_to_examine`, `density_boxes` and
+`density_atoms`, so the 3D viewer for a given ligand never shows another ligand from the same
+structure.
 
 ## Classification
 

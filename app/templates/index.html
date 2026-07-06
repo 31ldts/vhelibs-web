@@ -40,9 +40,13 @@
 
         <!-- Input card -->
         <div class="card">
-          <h2 class="card-title">PDB IDs to Analyse</h2>
+          <h2 class="card-title">PDB IDs / UniProt Accessions to Analyse</h2>
           <textarea id="pdbInput" class="pdb-textarea"
-            placeholder="Enter PDB IDs separated by commas, spaces or newlines&#10;e.g. 1cbs, 3dzu, 4hhb"></textarea>
+            placeholder="Enter PDB IDs and/or UniProt accessions, separated by commas, spaces or newlines&#10;e.g. 1cbs, 3dzu, 4hhb, P00734"></textarea>
+          <p class="th-hint" style="margin-top:4px">
+            A UniProt accession (e.g. <code>P00734</code>) is automatically expanded to every
+            PDB structure associated with it.
+          </p>
           <div class="input-row">
             <label class="btn btn-secondary" style="cursor:pointer">
               Load from file…
@@ -224,6 +228,11 @@
 
         <h3>How an analysis works</h3>
         <p>
+          You can enter PDB IDs, UniProt accessions, or a mix of both. A UniProt accession is
+          automatically resolved (via the RCSB Search API) to every PDB structure associated with
+          it, and each of those structures is analysed individually.
+        </p>
+        <p>
           For each PDB ID, VHELIBS downloads the mmCIF model (from RCSB, or from PDB-REDO if that
           option is checked) together with per-residue real-space validation statistics
           (from PDBe's EDS validation report, or from PDB-REDO's own re-refinement data).
@@ -280,6 +289,9 @@
           boxes around each region and clipped to a sphere around every atom, so you're only ever
           looking at density that belongs to the residues you're inspecting. The contour level
           (isovalue, in σ) and the per-atom mask radius are both adjustable live from the sidebar.
+          If a structure contains more than one ligand, opening the 3D view for one of them shows
+          only that ligand and its own binding site — any other ligand present in the structure is
+          left out of the scene entirely.
         </p>
 
         <h3>Data sources</h3>

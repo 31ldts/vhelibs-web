@@ -252,6 +252,7 @@ function buildResultCard(r) {
   header.className = "result-card-header";
   header.innerHTML = `
     <span class="result-pdbid">${esc(r.pdbid.toUpperCase())}</span>
+    ${r.uniprot ? `<span class="badge" style="margin-left:6px">UniProt: ${esc(r.uniprot)}</span>` : ""}
     <span class="result-badges">
       ${ligands.length} ligand(s)
       ${overallQ ? `<span class="badge badge-${qc}">${overallQ}</span>` : ""}
@@ -288,6 +289,7 @@ function buildResultCard(r) {
           <span class="badge badge-${bsQc}" style="margin-left:6px">BS: ${l.binding_site_quality}</span>
         </div>
         <button class="view-btn" data-pdbid="${esc(r.pdbid)}"
+          data-source="${esc(l.source || 'PDB')}"
           data-ligands='${JSON.stringify(l.ligand_residues)}'
           data-bs='${JSON.stringify(l.binding_site_residues)}'
           data-rte='${JSON.stringify(l.residues_to_examine || [])}'
@@ -309,6 +311,10 @@ function buildResultCard(r) {
       ${l.low_occupancy && l.low_occupancy.length ? `
       <div class="ligand-residues" style="margin-top:6px;color:var(--clr-dubious)">
         ⚠ Low occupancy: ${l.low_occupancy.map(s => `<span class="residue-tag">${esc(s)}</span>`).join("")}
+      </div>` : ""}
+      ${l.other_ligands && l.other_ligands.length ? `
+      <div class="ligand-residues" style="margin-top:6px;color:var(--clr-muted);font-size:.75rem">
+        ${l.other_ligands.length} other ligand residue(s) in this structure are not shown in the 3D view above.
       </div>` : ""}
     `;
     ligDiv.appendChild(entry);
@@ -340,12 +346,13 @@ function buildResultCard(r) {
     btn.addEventListener("click", e => {
       e.stopPropagation();
       const pdbid   = btn.dataset.pdbid;
+      const source  = btn.dataset.source || "PDB";
       const ligands = JSON.parse(btn.dataset.ligands || "[]");
       const bs      = JSON.parse(btn.dataset.bs || "[]");
       const rte     = JSON.parse(btn.dataset.rte || "[]");
       const boxes   = JSON.parse(btn.dataset.boxes || "{}");
       const atoms   = JSON.parse(btn.dataset.atoms || "{}");
-      openViewer(pdbid, ligands, bs, rte, boxes, atoms);
+      openViewer(pdbid, ligands, bs, rte, boxes, atoms, source);
     });
   });
 
@@ -374,6 +381,7 @@ let currentBsRes      = [];
 let currentRteRes     = [];
 let currentDensityBoxes = null; // {ligand, binding_site, residues_to_examine} bboxes, or null if unknown
 let currentDensityAtoms = null; // {ligand, binding_site, residues_to_examine} per-atom centers, or null
+let currentSource = "PDB"; // "PDB" or "PDB_REDO" — decides where density comes from, see buildMvsData
 let currentAtomRadius = 1.6; // Å, radius of the per-atom density clip sphere (user-adjustable)
 let currentFocusRes = null; // residue string clicked in the "residues to examine" list, or null
 const layerState = { protein: true, ligand: true, bs: true }; // structure checkbox state
@@ -456,13 +464,13 @@ loadStructureBtn.addEventListener("click", () => {
   loadMolstarStructure(pdbid, [], [], [], null, null);
 });
 
-function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms) {
+function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source) {
   showTab("viewer");
   viewerPdbInput.value = pdbid.toUpperCase();
-  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null, densityAtoms || null);
+  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null, densityAtoms || null, source || "PDB");
 }
 
-async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms) {
+async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source) {
   if (isLoadingStructure) {
     console.warn("loadMolstarStructure called while a load is already in progress — ignoring.");
     return;
@@ -479,6 +487,7 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
   currentRteRes = rteRes || [];
   currentDensityBoxes = densityBoxes || null;
   currentDensityAtoms = densityAtoms || null;
+  currentSource = source || "PDB";
   currentAtomRadius = 1.6;
   currentFocusRes = null;
   layerState.protein = true;
@@ -531,8 +540,22 @@ function finishLoading() {
   loadStructureBtn.textContent = "Load Structure";
 }
 
-// RCSB download endpoints to try, in order of preference.
+// RCSB download endpoints to try, in order of preference. For PDB-REDO
+// results we must NOT use the original RCSB coordinates: PDB-REDO
+// re-refines/rebuilds the model (peptide flips, rotamer changes, moved
+// waters, etc.), and its density map (see pdbRedoMapUrl) is calculated
+// against ITS OWN "final" coordinates, not the original deposited ones.
+// The per-atom clip-sphere centers sent by the backend (density_atoms) are
+// already computed from that same PDB-REDO model (see
+// core.pdb_utils.get_pdb_file(pdbid, pdb_redo=True) on the backend), so the
+// displayed structure must match it too, or the density can end up
+// spatially outside every clip sphere with no visible error.
 function molstarSources(pdbidLower) {
+  if (currentSource === "PDB_REDO") {
+    return [
+      { url: `https://pdb-redo.eu/db/${pdbidLower}/${pdbidLower}_final.cif`, format: "mmcif" },
+    ];
+  }
   return [
     { url: `https://files.rcsb.org/download/${pdbidLower}.cif`, format: "mmcif" },
     { url: `https://files.rcsb.org/download/${pdbidLower}.pdb`, format: "pdb" },
@@ -549,12 +572,27 @@ async function applyMolstarScene({ focus, keepCamera }) {
   const sources = molstarSources(currentPdbId.toLowerCase());
   let lastErr = null;
 
+  // For PDB-REDO analyses the electron density comes from an external
+  // map-maker service that doesn't always have (or correctly return) a
+  // map for a given entry — see core.pdb_redo_utils.get_EDM, which now
+  // validates the CCP4 magic bytes server-side and 404s if it's not a
+  // real map. Probe that once per scene build with a cheap HEAD request
+  // so a missing/broken map just means "no density shown" instead of
+  // Mol* throwing mid-load and aborting the whole structure.
+  let redoMapAvailable = false;
+  if (currentSource === "PDB_REDO" && currentDensityBoxes && hasAnyBox(currentDensityBoxes)) {
+    redoMapAvailable = await checkPdbRedoMapAvailable(currentPdbId);
+    if (!redoMapAvailable) {
+      console.warn(`[VHELIBS] No usable PDB-REDO density map for ${currentPdbId} — showing structure without density.`);
+    }
+  }
+
   for (const src of sources) {
     try {
       const mvsData = buildMvsData(
         src.url, src.format, currentLigandRes, currentBsRes, layerState, focus,
         currentDensityBoxes, currentDensityAtoms, currentAtomRadius, densityLayerState, currentIsovalue,
-        currentFocusRes
+        currentFocusRes, currentSource, redoMapAvailable
       );
       await molstar.PluginExtensions.mvs.loadMVS(viewerInstance.plugin, mvsData, {
         replaceExisting: true,
@@ -570,6 +608,18 @@ async function applyMolstarScene({ focus, keepCamera }) {
     throw lastErr || new Error("Unknown Mol* load error");
   }
 
+// HEAD-checks the PDB-REDO map endpoint without downloading the (possibly
+// large) body, so we know up front whether it's safe to include a volume
+// node for it in the MVS tree.
+async function checkPdbRedoMapAvailable(pdbid) {
+  try {
+    const r = await fetch(pdbRedoMapUrl(pdbid), { method: "HEAD" });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Region -> {color, layerKey, boxKey} mapping shared by buildMvsData and
 // the checkbox wiring below.
 const DENSITY_REGIONS = [
@@ -584,7 +634,7 @@ function hasAnyBox(densityBoxes) {
 
 function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
                        densityBoxes, densityAtoms, atomRadius, densityLayers, isovalue,
-                       focusResidue) {
+                       focusResidue, mapSource, redoMapAvailable) {
   const builder = molstar.PluginExtensions.mvs.MVSData.createBuilder();
   const structure = builder
     .download({ url: sourceUrl })
@@ -649,6 +699,17 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
   // in the browser, we only ever ask EBI for the chunk of density that
   // covers the region we want to show, which is both cheaper and avoids
   // having to reimplement spatial masking client-side.
+  //
+  // PDB-REDO ANALYSES ARE DIFFERENT: PDB-REDO re-refines the model, so its
+  // density map does not match the original entry's map served by EBI's
+  // density server — /api/density-box would silently show the wrong
+  // (original-PDB) density for a PDB-REDO result. PDB-REDO's map-maker
+  // service also has no per-region box-crop API, only a full-structure
+  // .map file, so for mapSource === "PDB_REDO" we download that single
+  // full map ONCE (via /api/edm?source=pdb_redo) and reuse it as the
+  // volume for every region below — the per-atom clip-sphere masking
+  // still works exactly the same, it's just applied to a shared volume
+  // instead of a freshly-downloaded per-region chunk.
 // Hard cap on clip representations per region — one Mol* representation
 // node is created per atom, and a very large binding site (hundreds of
 // atoms) would otherwise generate an excessive number of GPU draws. This
@@ -656,23 +717,40 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
 // the vast majority of ligands/binding sites.
 const MAX_CLIP_ATOMS_PER_REGION = 300;
 
+  const isRedo = mapSource === "PDB_REDO";
+  // For PDB-REDO, build the shared full-map volume once, outside the
+  // per-region loop (single download regardless of how many regions/atoms
+  // are shown). Only attempted when the caller has already confirmed (via
+  // checkPdbRedoMapAvailable) that the map-maker service actually has a
+  // usable map for this entry — otherwise we skip the download node
+  // entirely rather than let Mol* fail on it mid-load.
+  const redoVolume = (isRedo && redoMapAvailable && densityBoxes && hasAnyBox(densityBoxes))
+    ? builder.download({ url: pdbRedoMapUrl(currentPdbId) }).parse({ format: "map" }).volume({})
+    : null;
+
   if (densityBoxes) {
     for (const region of DENSITY_REGIONS) {
       if (!densityLayers[region.layerKey]) continue;
       const box = densityBoxes[region.boxKey];
       if (!box || !box.min || !box.max) continue;
 
-      // The box only sizes the *download window* — the EBI density server
-      // has no per-atom masking, so the box for e.g. "binding site" also
-      // contains the ligand and unrelated solvent. To actually show density
-      // that differs per residue/atom, the same downloaded volume is
-      // rendered as one representation per atom, each clipped to a small
-      // sphere of `atomRadius` around that atom (see
-      // rsr_core.residue_atom_centers). No extra network cost: it's one
-      // download, just multiple clipped representations of it.
-      const densityUrl = densityBoxUrl(currentPdbId, box);
-      const volume = builder.download({ url: densityUrl }).parse({ format: "bcif" })
-        .volume({ channel_id: "2FO-FC" });
+      let volume;
+      if (isRedo) {
+        if (!redoVolume) continue;
+        volume = redoVolume;
+      } else {
+        // The box only sizes the *download window* — the EBI density server
+        // has no per-atom masking, so the box for e.g. "binding site" also
+        // contains the ligand and unrelated solvent. To actually show density
+        // that differs per residue/atom, the same downloaded volume is
+        // rendered as one representation per atom, each clipped to a small
+        // sphere of `atomRadius` around that atom (see
+        // rsr_core.residue_atom_centers). No extra network cost: it's one
+        // download, just multiple clipped representations of it.
+        const densityUrl = densityBoxUrl(currentPdbId, box);
+        volume = builder.download({ url: densityUrl }).parse({ format: "bcif" })
+          .volume({ channel_id: "2FO-FC" });
+      }
 
       let atoms = (densityAtoms && densityAtoms[region.boxKey]) || [];
     if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
@@ -724,6 +802,14 @@ function densityBoxUrl(pdbid, box, detail = 3) {
   const min = box.min.join(",");
   const max = box.max.join(",");
   return `/api/density-box/${pdbid.toLowerCase()}?min=${min}&max=${max}&detail=${detail}`;
+}
+
+// Builds the URL for the full PDB-REDO density map (see routes.py /api/edm
+// and core.pdb_redo_utils.get_EDM). Unlike densityBoxUrl above, this is not
+// scoped to a region — PDB-REDO's map-maker has no box-crop API, so we
+// fetch the whole structure's map once and reuse it for every region.
+function pdbRedoMapUrl(pdbid) {
+  return `/api/edm/${pdbid.toLowerCase()}?source=pdb_redo`;
 }
 
 function populateResiduePicker(residues) {
@@ -823,11 +909,20 @@ function residueSelector(res) {
     if (Number.isNaN(resnum)) return null;
     return { auth_asym_id: chain, auth_seq_id: resnum };
   }
-  if (parts.length === 2) {
-    const chain  = parts[0];
-    const resnum = parseInt(parts[1], 10);
-    if (Number.isNaN(resnum)) return null;
-    return { auth_asym_id: chain, auth_seq_id: resnum };
+  // Defensive fallback only: the backend (core.pdb_atom.format_reskey) now
+  // always inserts an explicit space between chain and residue number, so
+  // this should no longer be reachable in practice. Kept in case a residue
+  // key ever arrives without that separator (e.g. malformed/legacy data),
+  // so a parse failure here degrades to "residue not selectable" rather
+  // than silently falling back to "show every ligand in the structure" in
+  // buildMvsData.
+  const m = res.match(/^(\S*?)\s*(\D*)(-?\d+)(\D*)$/);
+  if (m) {
+    const chain  = m[2];
+    const resnum = parseInt(m[3], 10);
+    if (chain && !Number.isNaN(resnum)) {
+      return { auth_asym_id: chain, auth_seq_id: resnum };
+    }
   }
   return null;
 }

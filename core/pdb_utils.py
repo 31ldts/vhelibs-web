@@ -18,6 +18,10 @@ PDBbase = "https://files.rcsb.org/download/{}.cif.gz"
 PDBREDObase_full = "https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.cif"
 QUERY_TPL = "https://data.rcsb.org/rest/v1/core/entry/{}"
 
+# RCSB Search API — used to resolve a UniProt accession to every PDB entry
+# whose polymer entities reference it (see get_pdbids_for_uniprot below).
+UNIPROT_SEARCH_URL = "https://search.rcsb.org/rcsbsearch/v2/query"
+
 CACHEDIR = os.path.join(tempfile.gettempdir(), "vhelibs_cache")
 
 
@@ -128,6 +132,70 @@ def get_custom_report(pdbid):
     except Exception as exc:
         logger.error("Error parsing stats for %s: %s", pdbid, exc)
         return {}
+
+
+def get_pdbids_for_uniprot(uniprot_id, max_results=200):
+    """
+    Resolve a UniProt accession (e.g. "P00734") to the PDB entries whose
+    polymer entities reference it, via the RCSB Search API.
+
+    Returns a list of upper-case 4-character PDB IDs (empty on no hits or
+    on network/parse failure — callers should treat that as "nothing
+    found" rather than a hard error).
+    """
+    uniprot_id = uniprot_id.strip().upper()
+    cachedir = os.path.join(CACHEDIR, "uniprot")
+    os.makedirs(cachedir, exist_ok=True)
+    cache_path = os.path.join(cachedir, f"{uniprot_id}.json")
+
+    if os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0:
+        try:
+            with open(cache_path, "rt") as fh:
+                return json.load(fh)
+        except Exception:
+            pass  # fall through and re-fetch on a corrupt cache entry
+
+    query = {
+        "query": {
+            "type": "terminal",
+            "service": "text",
+            "parameters": {
+                "attribute": (
+                    "rcsb_polymer_entity_container_identifiers."
+                    "reference_sequence_identifiers.database_accession"
+                ),
+                "operator": "exact_match",
+                "value": uniprot_id,
+            },
+        },
+        "return_type": "entry",
+        "request_options": {"paginate": {"start": 0, "rows": max_results}},
+    }
+
+    try:
+        r = requests.post(UNIPROT_SEARCH_URL, json=query, timeout=30)
+        if r.status_code == 204:
+            # RCSB's convention for "search executed fine, zero hits"
+            pdbids = []
+        else:
+            r.raise_for_status()
+            data = r.json()
+            pdbids = sorted({
+                hit["identifier"].upper()
+                for hit in data.get("result_set", [])
+                if hit.get("identifier")
+            })
+    except Exception as exc:
+        logger.error("UniProt->PDB lookup failed for %s: %s", uniprot_id, exc)
+        return []
+
+    try:
+        with open(cache_path, "wt") as fh:
+            json.dump(pdbids, fh)
+    except Exception:
+        pass
+
+    return pdbids
 
 
 def get_pdb_file(pdbcode, pdb_redo=False):

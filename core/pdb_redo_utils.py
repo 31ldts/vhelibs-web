@@ -12,6 +12,7 @@ import logging
 import requests
 
 import core.pdb_utils as pdb_utils
+from core.pdb_atom import format_reskey
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +60,11 @@ def get_ED_data(pdbid):
 
     edd_dict = {}
     for comp in ed_data:
-        hetid = comp["pdb"]["compID"]
-        while len(hetid) < 3:
-            hetid = " " + hetid
-        strand = comp["pdb"]["strandID"]
-        seqnum = str(comp["pdb"]["seqNum"])
-        while len(seqnum) < 4:
-            seqnum = " " + seqnum
-        residue = f"{hetid} {strand}{seqnum}"
+        residue = format_reskey(
+            comp["pdb"]["compID"],
+            comp["pdb"]["strandID"],
+            comp["pdb"]["seqNum"],
+        )
         edd_dict[residue] = {
             "RSR": float(comp.get("RSR") or 100),
             "RSCC": float(comp.get("RSCCS") or 0),

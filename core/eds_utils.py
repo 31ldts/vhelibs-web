@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 import requests
 
 import core.pdb_utils as pdb_utils
+from core.pdb_atom import format_reskey
 
 logger = logging.getLogger(__name__)
 
@@ -131,22 +132,12 @@ def get_EDS(pdbid):
 
         tree = ET.parse(stat_path)
         for res in tree.findall("ModelledSubgroup"):
-            resname = list("   ")
-            for i, c in enumerate(res.get("resname", "")[::-1]):
-                resname[2 - i] = c
-            resname = "".join(resname)
-
-            resnum = list("    ")
-            for i, c in enumerate(res.get("resnum", "")[::-1]):
-                resnum[3 - i] = c
-            resnum = "".join(resnum)
-
-            residue = "{} {}{}{}".format(
-                resname,
+            residue = format_reskey(
+                res.get("resname", ""),
                 res.get("chain", ""),
-                resnum,
+                res.get("resnum", "") or "0",
                 res.get("icode", ""),
-            ).strip()
+            )
 
             resdict = {
                 "RSR": float(res.get("rsr") or 100),

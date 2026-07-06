@@ -17,7 +17,7 @@ import logging
 
 import gemmi
 
-from core.pdb_atom import PdbAtom
+from core.pdb_atom import PdbAtom, format_reskey
 import core.pdb_utils as pdb_utils
 import core.eds_utils as eds_utils
 import core.pdb_redo_utils as pdb_redo_utils
@@ -161,11 +161,10 @@ def _dpi(a, b, c, alpha, beta, gamma, natoms, reflections, rfree):
 # ---------------------------------------------------------------------------
 
 def _fmt_reskey(comp_id, asym_id, seq_id):
-    """Build a fixed-width residue key identical to the original code's format."""
-    pos = str(seq_id)
-    while len(pos) < 4:
-        pos = " " + pos
-    return "{} {}{}".format(comp_id, asym_id, pos)
+    """Build a residue key. Thin wrapper kept for call-site compatibility —
+    see core.pdb_atom.format_reskey for the canonical (shared) implementation
+    and why asym_id/seq_id must always be joined with an explicit space."""
+    return format_reskey(comp_id, asym_id, seq_id)
 
 
 def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
@@ -583,6 +582,16 @@ def parse_binding_site(pdbid, cfg=None):
             ligand_score = max(ligand_score, score)
         ligand_scores.append(ligand_score)
 
+    # Snapshot of every residue belonging to *any* ligand group in this
+    # structure, taken after the per-residue pruning above. Used below to
+    # keep each ligand's binding-site/residues-to-examine lists — and the
+    # density boxes/atoms derived from them — free of atoms belonging to a
+    # *different* ligand. Without this, a second ligand sitting close
+    # enough to be pulled into get_binding_site()'s cross-ligand check
+    # would end up rendered in the 3D viewer even though it isn't the
+    # ligand actually under study for that entry.
+    all_ligand_keys = set().union(*ligands) if ligands else set()
+
     ligand_bs_list = []
     for ligand, ligand_score in zip(ligands, ligand_scores):
         if not ligand:
@@ -605,16 +614,33 @@ def parse_binding_site(pdbid, cfg=None):
         ligandresidues, binding_site, rte, ligandgood, bsgood, bad_occupancy, lig_score, bs_score = data
         if not ligandresidues:
             continue
+
+        # Residues belonging to any *other* ligand in this structure (e.g. a
+        # second binding site close enough to have been pulled into this
+        # one's binding site by get_binding_site's cross-ligand check).
+        # These still count towards this ligand's scoring above, but are
+        # excluded from everything sent below for 3D display, so the viewer
+        # only ever shows the ligand actually under study for this entry —
+        # any other ligand present in the structure stays hidden.
+        other_ligand_residues = all_ligand_keys - set(ligandresidues)
+        display_binding_site = [r for r in binding_site if r not in other_ligand_residues]
+        display_rte = [r for r in rte if r not in other_ligand_residues]
+        display_bad_occupancy = [r for r in bad_occupancy if r not in other_ligand_residues]
+
         result_ligands.append({
             "ligand_residues": sorted(ligandresidues),
-            "binding_site_residues": sorted(binding_site),
-            "residues_to_examine": sorted(rte),
+            "binding_site_residues": sorted(display_binding_site),
+            "residues_to_examine": sorted(display_rte),
             "ligand_quality": ligandgood,
             "binding_site_quality": bsgood,
             "source": source,
             "ligand_score": lig_score,
             "binding_site_score": bs_score,
-            "low_occupancy": sorted(bad_occupancy),
+            "low_occupancy": sorted(display_bad_occupancy),
+            # Other ligand(s) present in this structure that are NOT shown
+            # in the 3D viewer for this entry. Purely informational for the
+            # UI (e.g. "2 other ligand(s) hidden") — not used for scoring.
+            "other_ligands": sorted(other_ligand_residues),
             # Padded bounding boxes for on-demand, segmented density
             # display in the 3D viewer (see core.eds_utils.edm_box_url).
             # None if a region has no atoms (shouldn't normally happen for
@@ -622,16 +648,16 @@ def parse_binding_site(pdbid, cfg=None):
             # empty for a solvent-exposed ligand with distance=0).
             "density_boxes": {
                 "ligand": residues_bbox(ligandresidues, res_atom_dict, ligand_res_atom_dict),
-                "binding_site": residues_bbox(binding_site, res_atom_dict, ligand_res_atom_dict),
-                "residues_to_examine": residues_bbox(rte, res_atom_dict, ligand_res_atom_dict),
+                "binding_site": residues_bbox(display_binding_site, res_atom_dict, ligand_res_atom_dict),
+                "residues_to_examine": residues_bbox(display_rte, res_atom_dict, ligand_res_atom_dict),
             },
             # Per-atom coordinates used to actually differentiate the
             # density shown for each region (see residue_atom_centers
             # docstring) — the boxes above only size the download window.
             "density_atoms": {
                 "ligand": residue_atom_centers(ligandresidues, res_atom_dict, ligand_res_atom_dict),
-                "binding_site": residue_atom_centers(binding_site, res_atom_dict, ligand_res_atom_dict),
-                "residues_to_examine": residue_atom_centers(rte, res_atom_dict, ligand_res_atom_dict),
+                "binding_site": residue_atom_centers(display_binding_site, res_atom_dict, ligand_res_atom_dict),
+                "residues_to_examine": residue_atom_centers(display_rte, res_atom_dict, ligand_res_atom_dict),
             },
         })
 
