@@ -200,13 +200,13 @@ it can be overlaid per region (ligand / binding site / residues to examine) inst
 whole-model surface: density is streamed on demand from EBI's density server as small boxes
 around each region (`density_boxes`) and clipped to a sphere around every atom of that region
 (`density_atoms`), so only density belonging to the residues being inspected is shown. Both the
-contour level (isovalue, in σ) and the per-atom mask radius are adjustable live from the sidebar.
+contour level (isovalue, in σ) and the per-atom mask radius are adjustable live from the sidebar.-->
 
 ## Citation
 
 Cereto-Massagué A et al. *VHELIBS: a validation helper for ligands and binding sites.*
 J Cheminform 5, 36 (2013). <https://doi.org/10.1186/1758-2946-5-36>
 
-## License
+<!--## License
 
-Copyright 2012–2024 Adrià Cereto Massagué.
+Copyright 2012–2024 Adrià Cereto Massagué.-->
