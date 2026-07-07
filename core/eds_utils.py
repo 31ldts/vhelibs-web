@@ -39,12 +39,29 @@ EDM_BOX_URL = (
 
 
 def edm_box_url(pdbid, box, detail=3):
-    """
-    Build the EBI density-server "box" query URL for a given bounding box.
+    """Build the EBI density-server "box" query URL for a given bounding box.
 
-    box: {"min": [x, y, z], "max": [x, y, z]} (Angstrom, orthogonal coords)
-    detail: 0 (coarsest) - 6 (finest); 3 is a good default for ligand-sized
-            regions.
+    Constructs a URL against the EBI density VolumeServer's "box" endpoint,
+    which streams back only the density data within the specified
+    bounding box rather than the full electron density map.
+
+    Args:
+        pdbid (str): PDB identifier of the structure. It is lower-cased
+            before being inserted into the URL.
+        box (dict): Bounding box in Angstrom, orthogonal coordinates, with
+            the shape ``{"min": [x, y, z], "max": [x, y, z]}``.
+        detail (int, optional): Level of detail for the returned density,
+            ranging from ``0`` (coarsest) to ``6`` (finest). Defaults to
+            ``3``, a good default for ligand-sized regions.
+
+    Returns:
+        str: The fully formatted density-server "box" query URL.
+
+    Raises:
+        KeyError: If ``box`` does not contain both ``"min"`` and ``"max"``
+            keys.
+        ValueError: If ``box["min"]`` or ``box["max"]`` cannot be unpacked
+            into exactly three coordinate values.
     """
     (minx, miny, minz) = box["min"]
     (maxx, maxy, maxz) = box["max"]
@@ -57,17 +74,41 @@ def edm_box_url(pdbid, box, detail=3):
 
 
 def get_edm(pdbid, use_cache=True):
-    """
-    Download (and cache) the full 2Fo-Fc electron density map for *pdbid*
-    in CCP4 format.
+    """Download and cache the full 2Fo-Fc electron density map for a PDB entry.
 
-    Returns (filepath, sigma) on success, or (None, None) on failure.
-    `sigma` is a fixed placeholder (1.0) here: unlike the old .dsn6 format,
-    CCP4 maps carry their own header statistics (mean/rms), so Mol* / any
-    CCP4-aware client computes contour levels directly from the file
-    instead of needing a separately-tracked sigma value. It is kept in the
-    return signature for backwards compatibility with callers of the old
-    EDS_parser.get_EDM().
+    Fetches the CCP4-format electron density map from the EBI entry-files
+    endpoint, storing it under the shared PDB cache directory. If a valid
+    cached copy already exists and ``use_cache`` is ``True``, the download
+    is skipped.
+
+    Note:
+        `sigma` is a fixed placeholder (``1.0``) here: unlike the old
+        ``.dsn6`` format, CCP4 maps carry their own header statistics
+        (mean/rms), so Mol* / any CCP4-aware client computes contour
+        levels directly from the file instead of needing a
+        separately-tracked sigma value. It is kept in the return
+        signature for backwards compatibility with callers of the old
+        ``EDS_parser.get_EDM()``.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to fetch. It is
+            lower-cased before use.
+        use_cache (bool, optional): Whether to reuse an existing cached
+            map file instead of re-downloading it. Defaults to ``True``.
+
+    Returns:
+        tuple: A 2-tuple ``(filepath, sigma)``:
+
+            - filepath (str or None): Path to the downloaded (or cached)
+              CCP4 map file, or ``None`` if the download failed or no map
+              is available.
+            - sigma (float or None): Fixed placeholder value of ``1.0``
+              on success, or ``None`` on failure.
+
+    Raises:
+        None: All request and I/O errors are caught internally and
+            reported via the module logger; the function returns
+            ``(None, None)`` instead of propagating exceptions.
     """
     pdbid = pdbid.lower()
     downloaddir = os.path.join(pdb_utils.CACHEDIR, pdbid)
@@ -99,12 +140,34 @@ def get_edm(pdbid, use_cache=True):
 
 
 def get_EDS(pdbid):
-    """
-    Fetch EDS validation statistics for *pdbid* from PDBe.
+    """Fetch EDS (Electron Density Server) validation statistics from PDBe.
 
-    Returns (pdbdict, edd_dict) where:
-      pdbdict = {pdbid: True | False | reason_string}
-      edd_dict = {residue_key: {"RSR": float, "RSCC": float, "OWAB": float, ...}}
+    Downloads (and caches on disk) the PDBe validation XML file for the
+    given PDB entry, then parses per-residue electron-density validation
+    metrics (RSR, RSCC, OWAB, RSRZ, occupancy) from it.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to fetch. It is
+            lower-cased before use.
+
+    Returns:
+        tuple: A 2-tuple ``(pdbdict, edd_dict)``:
+
+            - pdbdict (dict): Mapping ``{pdbid: status}`` where ``status``
+              is ``True`` on success, ``False`` if no validation data is
+              available (e.g. HTTP 404 or missing file), or a string
+              containing the error message if an exception occurred.
+            - edd_dict (dict): Mapping of residue key (as produced by
+              :func:`core.pdb_atom.format_reskey`) to a dict with keys
+              ``"RSR"``, ``"RSCC"``, ``"OWAB"``, ``"RSRZ"``, and
+              ``"occupancy"`` (all floats). Empty if no data could be
+              parsed.
+
+    Raises:
+        None: All request, I/O, and XML-parsing errors are caught
+            internally and reported via the module logger and the
+            returned ``pdbdict`` status string; the function does not
+            propagate exceptions.
     """
     pdbid = pdbid.lower()
     pdbdict = {pdbid: None}
