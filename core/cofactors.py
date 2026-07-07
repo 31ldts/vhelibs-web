@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 #   Copyright 2012-2024 Adrià Cereto Massagué
-#   Migrated to web version – pure Python, no changes to data.
+#   Migrated to web version
 #
 import csv
 
@@ -103,12 +103,50 @@ ligand_blacklist = {
 
 
 def update_lists(new_m=metals, new_lb=ligand_blacklist):
+    """Replace the module-level cofactor lookup dictionaries.
+
+    Overwrites the global ``metals`` and ``ligand_blacklist`` dictionaries
+    with the provided replacements.
+
+    Args:
+        new_m (dict, optional): New mapping of metal/ion codes to their
+            descriptive names. Defaults to the current ``metals`` dict.
+        new_lb (dict, optional): New mapping of blacklisted ligand codes to
+            their descriptive names. Defaults to the current
+            ``ligand_blacklist`` dict.
+
+    Returns:
+        None: This function does not return a value; it mutates the
+        module-level globals in place.
+
+    Raises:
+        None
+    """
     global metals, ligand_blacklist
     metals = new_m
     ligand_blacklist = new_lb
 
 
 def dump_lists(fname='notligands'):
+    """Write the ``ligand_blacklist`` and ``metals`` dictionaries to a CSV file.
+
+    The CSV file is written with two sections, each preceded by a header
+    row: ``[Blacklist]`` for the ``ligand_blacklist`` entries and
+    ``[Non-propagating]`` for the ``metals`` entries. Each entry is written
+    as a ``key, value`` row.
+
+    Args:
+        fname (str, optional): Path or base name of the output CSV file.
+            If it does not already end with ``.csv``, that extension is
+            appended automatically. Defaults to ``'notligands'``.
+
+    Returns:
+        int: Always returns ``0`` on successful completion.
+
+    Raises:
+        OSError: If the file cannot be opened or written to (e.g. due to
+            invalid path or insufficient permissions).
+    """
     if not fname.endswith('.csv'):
         fname += '.csv'
     with open(fname, 'w', newline='') as f:
@@ -123,6 +161,28 @@ def dump_lists(fname='notligands'):
 
 
 def load_lists(fname):
+    """Load cofactor lists from a CSV file and update the global dictionaries.
+
+    Parses a CSV file structured with ``[Blacklist]`` and
+    ``[Non-propagating]`` section headers, rebuilds the corresponding
+    dictionaries from the rows found under each section, and applies them
+    via :func:`update_lists`.
+
+    Args:
+        fname (str): Path to the CSV file to read. The file must contain
+            section headers (``[Blacklist]``, ``[Non-propagating]``)
+            followed by rows of ``key, value`` pairs.
+
+    Returns:
+        int: Always returns ``0`` on successful completion.
+
+    Raises:
+        OSError: If the file cannot be opened or read (e.g. it does not
+            exist or is not accessible).
+        csv.Error: If the file content cannot be parsed as valid CSV.
+        IndexError: If a data row is malformed and does not contain both
+            a key and a value column.
+    """
     new_m, new_lb = {}, {}
     d = None
     with open(fname, 'r', newline='') as f:
