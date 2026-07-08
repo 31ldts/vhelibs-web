@@ -22,6 +22,27 @@ ALLDATA_URL = "https://pdb-redo.eu/db/{pdbid}/data.json"
 
 
 def _download(url, dest_path, retries=3):
+    """Download a URL to a local file, retrying on failure.
+
+    Attempts to fetch ``url`` and write its raw content to ``dest_path``,
+    retrying up to ``retries`` times if a request fails.
+
+    Args:
+        url (str): URL to download.
+        dest_path (str): Local filesystem path where the downloaded
+            content will be written.
+        retries (int, optional): Maximum number of attempts before giving
+            up. Defaults to ``3``.
+
+    Returns:
+        bool: ``True`` if the download succeeded and the file was written,
+        ``False`` if all attempts failed.
+
+    Raises:
+        None: Request and I/O errors are caught internally on each
+            attempt and logged as warnings; the function returns
+            ``False`` instead of propagating exceptions.
+    """
     for attempt in range(1, retries + 1):
         try:
             r = requests.get(url, timeout=60, verify=True)
@@ -35,9 +56,26 @@ def _download(url, dest_path, retries=3):
 
 
 def get_ED_data(pdbid):
-    """
-    Fetch per-residue RSR/RSCC from PDB-REDO for *pdbid*.
-    Returns edd_dict {residue_key: {"RSR": float, "RSCC": float}} or None on failure.
+    """Fetch per-residue RSR/RSCC electron-density statistics from PDB-REDO.
+
+    Downloads (and caches on disk) the PDB-REDO ``*_final.json`` file for
+    the given entry, then parses it into a per-residue dictionary of
+    density-fit statistics.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to fetch. It is
+            lower-cased before use.
+
+    Returns:
+        dict or None: A dictionary mapping residue key (as produced by
+        :func:`core.pdb_atom.format_reskey`) to a dict with keys
+        ``"RSR"`` and ``"RSCC"`` (floats). Returns ``None`` if the file
+        could not be downloaded or parsed.
+
+    Raises:
+        None: Download and parsing errors are caught internally and
+            reported via the module logger; the function returns ``None``
+            instead of propagating exceptions.
     """
     pdbid = pdbid.lower()
     downloaddir = os.path.join(pdb_utils.CACHEDIR, pdbid)
@@ -73,9 +111,30 @@ def get_ED_data(pdbid):
 
 
 def get_pdbredo_data(pdbid):
-    """
-    Fetch overall structure statistics from PDB-REDO for *pdbid*.
-    Returns a rowdict compatible with pdb_utils.get_custom_report() or None.
+    """Fetch overall structure refinement statistics from PDB-REDO.
+
+    Retrieves (using a local cache when available) the PDB-REDO
+    ``data.json`` file for the given entry and extracts a set of
+    structure-level refinement properties from it.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to fetch. It is
+            lower-cased before use.
+
+    Returns:
+        dict or None: A dictionary compatible with
+        ``pdb_utils.get_custom_report()``, containing the keys
+        ``"experimentalTechnique"``, ``"rFree"``, ``"rWork"``,
+        ``"refinementResolution"``, ``"unitCellAngleAlpha"``,
+        ``"unitCellAngleBeta"``, ``"unitCellAngleGamma"``,
+        ``"lengthOfUnitCellLatticeA"``, ``"lengthOfUnitCellLatticeB"``,
+        ``"lengthOfUnitCellLatticeC"``, and ``"nreflections"``. Returns
+        ``None`` if the data could not be fetched or parsed.
+
+    Raises:
+        None: Fetch, cache, and parsing errors are caught internally and
+            reported via the module logger; the function returns ``None``
+            instead of propagating exceptions.
     """
     pdbid = pdbid.lower()
     cachedir = os.path.join(pdb_utils.CACHEDIR, pdbid)
@@ -125,7 +184,24 @@ def get_pdbredo_data(pdbid):
 
 
 def get_EDM(pdbid):
-    """Download the PDB-REDO MTZ map file. Returns local path or None."""
+    """Download (and cache) the PDB-REDO MTZ electron density map file.
+
+    If a valid cached copy of the MTZ file already exists locally, the
+    download is skipped and the cached path is returned directly.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to fetch. It is
+            lower-cased before use.
+
+    Returns:
+        str or None: Local filesystem path to the downloaded (or cached)
+        MTZ file, or ``None`` if the download failed.
+
+    Raises:
+        None: Download errors are caught internally (via
+            :func:`_download`) and reported via the module logger; the
+            function returns ``None`` instead of propagating exceptions.
+    """
     pdbid = pdbid.lower()
     downloaddir = os.path.join(pdb_utils.CACHEDIR, pdbid)
     os.makedirs(downloaddir, exist_ok=True)
