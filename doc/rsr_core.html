@@ -30,12 +30,13 @@
     
 <tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
 <td class="singlecolumn"><table><tr><td class="multicolumn"><a href="core.cofactors.html">core.cofactors</a><br>
-<a href="core.eds_utils.html">core.eds_utils</a><br>
-</td><td class="multicolumn"><a href="gemmi.html">gemmi</a><br>
-<a href="logging.html">logging</a><br>
-</td><td class="multicolumn"><a href="math.html">math</a><br>
-<a href="core.pdb_redo_utils.html">core.pdb_redo_utils</a><br>
-</td><td class="multicolumn"><a href="core.pdb_utils.html">core.pdb_utils</a><br>
+<a href="concurrent.html">concurrent</a><br>
+</td><td class="multicolumn"><a href="core.eds_utils.html">core.eds_utils</a><br>
+<a href="gemmi.html">gemmi</a><br>
+</td><td class="multicolumn"><a href="logging.html">logging</a><br>
+<a href="math.html">math</a><br>
+</td><td class="multicolumn"><a href="core.pdb_redo_utils.html">core.pdb_redo_utils</a><br>
+<a href="core.pdb_utils.html">core.pdb_utils</a><br>
 </td></tr></table></td></tr></table><p>
 <table class="section">
 <tr class="decor index-decor heading-text">
@@ -188,12 +189,14 @@ Data descriptors defined here:<br>
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
     
 <tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
-<td class="singlecolumn"><dl><dt><a name="-analyse_pdbids"><strong>analyse_pdbids</strong></a>(pdbids, cfg=None)</dt><dd><span class="code">Analyse&nbsp;a&nbsp;list&nbsp;of&nbsp;PDB&nbsp;IDs&nbsp;sequentially.<br>
+<td class="singlecolumn"><dl><dt><a name="-analyse_pdbids"><strong>analyse_pdbids</strong></a>(pdbids, cfg=None, max_workers=8)</dt><dd><span class="code">Analyse&nbsp;a&nbsp;list&nbsp;of&nbsp;PDB&nbsp;IDs&nbsp;concurrently.<br>
 &nbsp;<br>
-Calls&nbsp;:func:`parse_binding_site`&nbsp;for&nbsp;each&nbsp;PDB&nbsp;ID&nbsp;in&nbsp;turn,&nbsp;catching&nbsp;and<br>
-logging&nbsp;any&nbsp;unexpected&nbsp;exception&nbsp;per&nbsp;entry&nbsp;so&nbsp;that&nbsp;one&nbsp;failing&nbsp;entry<br>
-does&nbsp;not&nbsp;abort&nbsp;the&nbsp;whole&nbsp;batch.&nbsp;The&nbsp;web&nbsp;layer&nbsp;may&nbsp;call&nbsp;this&nbsp;in&nbsp;a<br>
-background&nbsp;thread.<br>
+Calls&nbsp;:func:`parse_binding_site`&nbsp;for&nbsp;each&nbsp;PDB&nbsp;ID&nbsp;via&nbsp;a&nbsp;thread&nbsp;pool<br>
+(since&nbsp;each&nbsp;call&nbsp;is&nbsp;I/O-bound,&nbsp;dominated&nbsp;by&nbsp;network&nbsp;downloads&nbsp;rather<br>
+than&nbsp;CPU),&nbsp;catching&nbsp;and&nbsp;logging&nbsp;any&nbsp;unexpected&nbsp;exception&nbsp;per&nbsp;entry&nbsp;so<br>
+that&nbsp;one&nbsp;failing&nbsp;entry&nbsp;does&nbsp;not&nbsp;abort&nbsp;the&nbsp;whole&nbsp;batch.&nbsp;The&nbsp;web&nbsp;layer<br>
+may&nbsp;call&nbsp;this&nbsp;in&nbsp;a&nbsp;background&nbsp;thread;&nbsp;results&nbsp;preserve&nbsp;the&nbsp;input<br>
+order&nbsp;regardless&nbsp;of&nbsp;completion&nbsp;order.<br>
 &nbsp;<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbids&nbsp;(iterable):&nbsp;Iterable&nbsp;of&nbsp;PDB&nbsp;identifier&nbsp;strings&nbsp;to&nbsp;analyse.<br>
@@ -201,12 +204,21 @@ Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;analysis.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;cfg&nbsp;(<a href="#AnalysisConfig">AnalysisConfig</a>,&nbsp;optional):&nbsp;Analysis&nbsp;configuration&nbsp;shared<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;across&nbsp;all&nbsp;entries.&nbsp;If&nbsp;``None``,&nbsp;a&nbsp;default<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`<a href="#AnalysisConfig">AnalysisConfig</a>`&nbsp;is&nbsp;used.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`<a href="#AnalysisConfig">AnalysisConfig</a>`&nbsp;is&nbsp;used.&nbsp;``<a href="#AnalysisConfig">AnalysisConfig</a>``&nbsp;instances<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;are&nbsp;read-only&nbsp;during&nbsp;analysis,&nbsp;so&nbsp;sharing&nbsp;one&nbsp;across&nbsp;threads<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;is&nbsp;safe.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;max_workers&nbsp;(int,&nbsp;optional):&nbsp;Maximum&nbsp;number&nbsp;of&nbsp;PDB&nbsp;entries<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;analysed&nbsp;concurrently.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:data:`DEFAULT_ANALYSE_WORKERS`.&nbsp;Each&nbsp;PDB&nbsp;ID&nbsp;writes&nbsp;only&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;its&nbsp;own&nbsp;per-entry&nbsp;cache&nbsp;directory&nbsp;(see<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.http_cache.entry_cache_dir`),&nbsp;so&nbsp;entries&nbsp;never<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;contend&nbsp;with&nbsp;each&nbsp;other&nbsp;on&nbsp;disk.<br>
 &nbsp;<br>
 Returns:<br>
-&nbsp;&nbsp;&nbsp;&nbsp;list:&nbsp;A&nbsp;list&nbsp;of&nbsp;result&nbsp;dicts,&nbsp;one&nbsp;per&nbsp;input&nbsp;PDB&nbsp;ID,&nbsp;in&nbsp;the&nbsp;same<br>
-&nbsp;&nbsp;&nbsp;&nbsp;format&nbsp;returned&nbsp;by&nbsp;:func:`parse_binding_site`&nbsp;(either&nbsp;a&nbsp;success<br>
-&nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;an&nbsp;``{"pdbid":&nbsp;...,&nbsp;"error":&nbsp;...}``&nbsp;dict).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;list:&nbsp;A&nbsp;list&nbsp;of&nbsp;result&nbsp;dicts,&nbsp;one&nbsp;per&nbsp;input&nbsp;PDB&nbsp;ID,&nbsp;**in&nbsp;the&nbsp;same<br>
+&nbsp;&nbsp;&nbsp;&nbsp;order&nbsp;as&nbsp;the&nbsp;input**&nbsp;(not&nbsp;completion&nbsp;order),&nbsp;in&nbsp;the&nbsp;same&nbsp;format<br>
+&nbsp;&nbsp;&nbsp;&nbsp;returned&nbsp;by&nbsp;:func:`parse_binding_site`&nbsp;(either&nbsp;a&nbsp;success&nbsp;dict&nbsp;or<br>
+&nbsp;&nbsp;&nbsp;&nbsp;an&nbsp;``{"pdbid":&nbsp;...,&nbsp;"error":&nbsp;...}``&nbsp;dict).<br>
 &nbsp;<br>
 Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Unexpected&nbsp;exceptions&nbsp;from&nbsp;analysing&nbsp;an&nbsp;individual&nbsp;entry&nbsp;are<br>
@@ -505,6 +517,7 @@ Raises:<br>
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
     
 <tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
-<td class="singlecolumn"><strong>DEFAULT_BOX_PADDING</strong> = 2.1<br>
+<td class="singlecolumn"><strong>DEFAULT_ANALYSE_WORKERS</strong> = 8<br>
+<strong>DEFAULT_BOX_PADDING</strong> = 2.1<br>
 <strong>logger</strong> = &lt;Logger rsr_core (WARNING)&gt;</td></tr></table>
 </body></html>
