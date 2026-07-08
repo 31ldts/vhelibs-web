@@ -26,13 +26,50 @@ CACHEDIR = os.path.join(tempfile.gettempdir(), "vhelibs_cache")
 
 
 def set_cache_dir(path):
+    """Set the directory used to cache downloaded files.
+
+    Updates the module-level ``CACHEDIR`` global to point at ``path`` and
+    ensures the directory exists, creating it (and any missing parent
+    directories) if necessary.
+
+    Args:
+        path (str): Filesystem path to use as the new cache directory.
+
+    Returns:
+        None: This function does not return a value; it mutates the
+        module-level ``CACHEDIR`` global in place.
+
+    Raises:
+        OSError: If the directory cannot be created (e.g. due to
+            insufficient permissions).
+    """
     global CACHEDIR
     CACHEDIR = path
     os.makedirs(CACHEDIR, exist_ok=True)
 
 
 def _download(url, dest_path, retries=3):
-    """Download *url* to *dest_path* with retry logic. Returns True on success."""
+    """Download a URL to a local file, retrying on failure.
+
+    Attempts to fetch ``url`` and write its raw content to ``dest_path``,
+    retrying up to ``retries`` times if a request fails.
+
+    Args:
+        url (str): URL to download.
+        dest_path (str): Local filesystem path where the downloaded
+            content will be written.
+        retries (int, optional): Maximum number of attempts before giving
+            up. Defaults to ``3``.
+
+    Returns:
+        bool: ``True`` if the download succeeded and the file was written,
+        ``False`` if all attempts failed.
+
+    Raises:
+        None: Request and I/O errors are caught internally on each
+            attempt and logged as warnings; the function returns
+            ``False`` instead of propagating exceptions.
+    """
     for attempt in range(1, retries + 1):
         try:
             r = requests.get(url, timeout=30, verify=True)
@@ -46,13 +83,33 @@ def _download(url, dest_path, retries=3):
 
 
 def get_custom_report(pdbid):
-    """
-    Fetch structure metadata from RCSB REST API.
-    Returns {PDBID: rowdict} on success, or {} if the entry is unusable
-    (e.g. NMR / cryo-EM with no refinement block, or network failure).
+    """Fetch structure refinement/metadata statistics from the RCSB REST API.
 
-    Robust against missing/null fields: every value has a safe fallback so a
-    KeyError on one field never kills the whole entry.
+    Retrieves (using a local cache when available) the RCSB entry data for
+    the given PDB entry and extracts a set of refinement and unit-cell
+    statistics from it. Every extracted value has a safe fallback, so a
+    missing or null field never causes the whole entry to fail.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to fetch. Case is
+            normalized internally (upper-cased for the returned dict key,
+            lower-cased for the API request URL).
+
+    Returns:
+        dict: A dictionary of the form ``{PDBID: rowdict}`` where
+        ``rowdict`` contains the keys ``"experimentalTechnique"``,
+        ``"rFree"``, ``"rWork"``, ``"refinementResolution"``,
+        ``"nreflections"``, ``"unitCellAngleAlpha"``,
+        ``"unitCellAngleBeta"``, ``"unitCellAngleGamma"``,
+        ``"lengthOfUnitCellLatticeA"``, ``"lengthOfUnitCellLatticeB"``,
+        and ``"lengthOfUnitCellLatticeC"``. Returns an empty dict ``{}``
+        if the entry is unusable (e.g. NMR/cryo-EM with no refinement
+        block) or if the data could not be fetched or parsed.
+
+    Raises:
+        None: Fetch, cache, and parsing errors are caught internally and
+            reported via the module logger; the function returns ``{}``
+            instead of propagating exceptions.
     """
     pdbid = pdbid.upper()
     url = QUERY_TPL.format(pdbid.lower())
@@ -84,7 +141,25 @@ def get_custom_report(pdbid):
 
     # ── Extract fields with safe fallbacks ────────────────────────────────
     def _g(d, *keys, default=None):
-        """Safely get a nested key from a dict; returns *default* if any step is missing/None."""
+        """Safely retrieve a nested value from a dict of dicts.
+
+        Walks through ``d`` following ``keys`` in order, returning
+        ``default`` as soon as any intermediate value is not a dict or is
+        ``None``.
+
+        Args:
+            d (dict): Dictionary (possibly nested) to traverse.
+            *keys: Sequence of keys to look up successively.
+            default: Value to return if any step of the traversal is
+                missing or ``None``. Defaults to ``None``.
+
+        Returns:
+            Any: The value found at the end of the key path, or
+            ``default`` if the path could not be fully resolved.
+
+        Raises:
+            None
+        """
         for k in keys:
             if not isinstance(d, dict):
                 return default
@@ -135,13 +210,29 @@ def get_custom_report(pdbid):
 
 
 def get_pdbids_for_uniprot(uniprot_id, max_results=200):
-    """
-    Resolve a UniProt accession (e.g. "P00734") to the PDB entries whose
-    polymer entities reference it, via the RCSB Search API.
+    """Resolve a UniProt accession to the PDB entries that reference it.
 
-    Returns a list of upper-case 4-character PDB IDs (empty on no hits or
-    on network/parse failure — callers should treat that as "nothing
-    found" rather than a hard error).
+    Queries the RCSB Search API to find every PDB entry whose polymer
+    entities reference the given UniProt accession (e.g. ``"P00734"``),
+    caching results on disk for subsequent calls.
+
+    Args:
+        uniprot_id (str): UniProt accession to resolve. Leading/trailing
+            whitespace is stripped and the value is upper-cased before
+            use.
+        max_results (int, optional): Maximum number of PDB entries to
+            request from the search API. Defaults to ``200``.
+
+    Returns:
+        list: A sorted list of upper-case 4-character PDB IDs referencing
+        the given UniProt accession. Empty if there are no hits or if a
+        network/parse failure occurs; callers should treat an empty list
+        as "nothing found" rather than a hard error.
+
+    Raises:
+        None: Request and parsing errors are caught internally and
+            reported via the module logger; the function returns ``[]``
+            instead of propagating exceptions.
     """
     uniprot_id = uniprot_id.strip().upper()
     cachedir = os.path.join(CACHEDIR, "uniprot")
@@ -199,7 +290,27 @@ def get_pdbids_for_uniprot(uniprot_id, max_results=200):
 
 
 def get_pdb_file(pdbcode, pdb_redo=False):
-    """Download the mmCIF file for *pdbcode*. Returns local file path or empty string."""
+    """Download (and cache) the mmCIF structure file for a PDB entry.
+
+    Fetches the mmCIF file either from the standard RCSB file archive or,
+    if requested, from PDB-REDO's re-refined coordinate set. If a valid
+    cached copy already exists locally, the download is skipped.
+
+    Args:
+        pdbcode (str): PDB identifier of the structure to fetch.
+        pdb_redo (bool, optional): If ``True``, download the PDB-REDO
+            re-refined ``.cif`` file instead of the standard RCSB
+            ``.cif.gz`` file. Defaults to ``False``.
+
+    Returns:
+        str: Local filesystem path to the downloaded (or cached) mmCIF
+        file, or an empty string ``""`` if the download failed.
+
+    Raises:
+        None: Download errors are caught internally (via
+            :func:`_download`) and reported via the module logger; the
+            function returns ``""`` instead of propagating exceptions.
+    """
     pdbcode_lower = pdbcode.lower()
     os.makedirs(CACHEDIR, exist_ok=True)
     if not pdb_redo:
