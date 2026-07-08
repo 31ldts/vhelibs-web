@@ -27,7 +27,43 @@ logger = logging.getLogger(__name__)
 
 
 class AnalysisConfig:
-    """All tunable parameters for a single analysis run."""
+    """All tunable parameters for a single analysis run.
+
+    Attributes:
+        rsr_upper (float): Upper RSR (real-space R-factor) threshold above
+            which a residue accrues an extra penalty point.
+        rsr_lower (float): Lower RSR threshold above which a residue
+            accrues a penalty point.
+        rscc_min (float): Minimum acceptable RSCC (real-space correlation
+            coefficient); values below this accrue a penalty point.
+        rfree_max (float): Maximum acceptable structure-level R-free
+            value; values above this accrue a penalty point.
+        occupancy_min (float): Minimum acceptable per-residue occupancy;
+            values below this (but not above 1.0) accrue a penalty point.
+        tolerance (int): Maximum cumulative score a residue may have while
+            still being classified as "dubious" rather than "bad".
+        inner_distance (float): Squared contact distance (Angstrom²) used
+            to determine binding-site membership, derived from the
+            ``distance`` constructor argument.
+        check_owab (bool): Whether to factor per-atom OWAB (occupancy-
+            weighted average B-factor) into residue scoring.
+        owab_max (float): Maximum acceptable OWAB value when
+            ``check_owab`` is enabled.
+        check_resolution (bool): Whether to factor structure resolution
+            into scoring.
+        resolution_max (float): Maximum acceptable resolution (Angstrom)
+            when ``check_resolution`` is enabled.
+        use_rdiff (bool): Whether to factor the R-free/R-work difference
+            into scoring.
+        rdiff_max (float): Maximum acceptable R-free/R-work difference
+            when ``use_rdiff`` is enabled.
+        use_dpi (bool): Whether to factor the estimated coordinate
+            precision (DPI) into scoring.
+        dpi_max (float): Maximum acceptable DPI value when ``use_dpi`` is
+            enabled.
+        pdb_redo (bool): Whether to source structural/refinement data from
+            PDB-REDO instead of the primary PDB/RCSB archive.
+    """
 
     def __init__(
         self,
@@ -48,6 +84,49 @@ class AnalysisConfig:
         dpi_max=0.42,
         pdb_redo=False,
     ):
+        """Initialize an AnalysisConfig with the given tunable parameters.
+
+        Args:
+            rsr_upper (float, optional): Upper RSR threshold. Defaults to
+                ``0.4``.
+            rsr_lower (float, optional): Lower RSR threshold. Defaults to
+                ``0.24``.
+            rscc_min (float, optional): Minimum acceptable RSCC. Defaults
+                to ``0.9``.
+            rfree_max (float, optional): Maximum acceptable R-free.
+                Defaults to ``1.0``.
+            occupancy_min (float, optional): Minimum acceptable
+                occupancy. Defaults to ``1.0``.
+            tolerance (int, optional): Score tolerance separating
+                "dubious" from "bad" residues. Defaults to ``2``.
+            distance (float, optional): Contact distance in Angstrom used
+                to compute ``inner_distance`` (its square). Defaults to
+                ``4.5``.
+            check_owab (bool, optional): Whether to check OWAB. Defaults
+                to ``False``.
+            owab_max (float, optional): Maximum acceptable OWAB. Defaults
+                to ``50.0``.
+            check_resolution (bool, optional): Whether to check
+                resolution. Defaults to ``False``.
+            resolution_max (float, optional): Maximum acceptable
+                resolution. Defaults to ``3.5``.
+            use_rdiff (bool, optional): Whether to use the R-free/R-work
+                difference. Defaults to ``False``.
+            rdiff_max (float, optional): Maximum acceptable R-free/R-work
+                difference. Defaults to ``0.05``.
+            use_dpi (bool, optional): Whether to use DPI. Defaults to
+                ``False``.
+            dpi_max (float, optional): Maximum acceptable DPI. Defaults to
+                ``0.42``.
+            pdb_redo (bool, optional): Whether to source data from
+                PDB-REDO. Defaults to ``False``.
+
+        Returns:
+            None
+
+        Raises:
+            None
+        """
         self.rsr_upper = rsr_upper
         self.rsr_lower = rsr_lower
         self.rscc_min = rscc_min
@@ -71,6 +150,19 @@ class AnalysisConfig:
 # ---------------------------------------------------------------------------
 
 def _average_occ(residue_atoms):
+    """Compute the average occupancy over a collection of atoms.
+
+    Args:
+        residue_atoms (iterable): Iterable of :class:`core.pdb_atom.PdbAtom`
+            objects (typically all atoms of a single residue).
+
+    Returns:
+        float: The mean of the ``occupancy`` attribute across
+        ``residue_atoms``.
+
+    Raises:
+        ZeroDivisionError: If ``residue_atoms`` is empty.
+    """
     return sum(a.occupancy for a in residue_atoms) / len(residue_atoms)
 
 
@@ -91,6 +183,28 @@ DEFAULT_BOX_PADDING = 2.1
 
 
 def _atoms_for_residues(residues, res_atom_dict, ligand_res_atom_dict):
+    """Collect all atoms belonging to a set of residue keys.
+
+    Looks up each residue key in both the protein/cofactor atom dict and
+    the ligand atom dict, combining the results into a single flat list.
+
+    Args:
+        residues (iterable): Iterable of residue key strings (as produced
+            by :func:`core.pdb_atom.format_reskey`) to collect atoms for.
+        res_atom_dict (dict): Mapping of residue key to a collection of
+            :class:`core.pdb_atom.PdbAtom` for protein/nucleic-acid and
+            blacklisted/metal atoms.
+        ligand_res_atom_dict (dict): Mapping of residue key to a
+            collection of :class:`core.pdb_atom.PdbAtom` for ligand
+            atoms.
+
+    Returns:
+        list: A flat list of :class:`core.pdb_atom.PdbAtom` objects
+        belonging to any of the given residue keys.
+
+    Raises:
+        None
+    """
     atoms = []
     for res in residues:
         atoms.extend(res_atom_dict.get(res, ()))
@@ -99,7 +213,23 @@ def _atoms_for_residues(residues, res_atom_dict, ligand_res_atom_dict):
 
 
 def _bbox(atoms, padding=DEFAULT_BOX_PADDING):
-    """Axis-aligned bounding box (padded) over an iterable of PdbAtom."""
+    """Compute an axis-aligned, padded bounding box over a set of atoms.
+
+    Args:
+        atoms (iterable): Iterable of :class:`core.pdb_atom.PdbAtom`
+            objects to compute the bounding box over.
+        padding (float, optional): Amount, in Angstrom, to expand the box
+            on every side beyond the atoms' extreme coordinates. Defaults
+            to :data:`DEFAULT_BOX_PADDING`.
+
+    Returns:
+        dict or None: A dict of the form
+        ``{"min": [x, y, z], "max": [x, y, z]}`` describing the padded
+        bounding box, or ``None`` if ``atoms`` is empty.
+
+    Raises:
+        None
+    """
     atoms = list(atoms)
     if not atoms:
         return None
@@ -111,7 +241,7 @@ def _bbox(atoms, padding=DEFAULT_BOX_PADDING):
 
 
 def residues_bbox(residues, res_atom_dict, ligand_res_atom_dict, padding=DEFAULT_BOX_PADDING):
-    """Padded bounding box covering all atoms of the given residue keys.
+    """Compute a padded bounding box covering all atoms of given residues.
 
     This is only used to size the *download window* sent to the density
     server (which only supports box/cell queries, not per-atom masking) —
@@ -120,15 +250,34 @@ def residues_bbox(residues, res_atom_dict, ligand_res_atom_dict, padding=DEFAULT
     decide what density is *shown*, since a box covering e.g. a binding
     site will inevitably also cover the ligand and unrelated solvent; see
     `residue_atom_centers` for the per-atom masks used for that.
+
+    Args:
+        residues (iterable): Iterable of residue key strings to include in
+            the bounding box.
+        res_atom_dict (dict): Mapping of residue key to a collection of
+            :class:`core.pdb_atom.PdbAtom` for protein/nucleic-acid and
+            blacklisted/metal atoms.
+        ligand_res_atom_dict (dict): Mapping of residue key to a
+            collection of :class:`core.pdb_atom.PdbAtom` for ligand
+            atoms.
+        padding (float, optional): Amount, in Angstrom, to expand the box
+            on every side. Defaults to :data:`DEFAULT_BOX_PADDING`.
+
+    Returns:
+        dict or None: A dict of the form
+        ``{"min": [x, y, z], "max": [x, y, z]}`` describing the padded
+        bounding box, or ``None`` if no atoms are found for the given
+        residues.
+
+    Raises:
+        None
     """
     atoms = _atoms_for_residues(residues, res_atom_dict, ligand_res_atom_dict)
     return _bbox(atoms, padding)
 
 
 def residue_atom_centers(residues, res_atom_dict, ligand_res_atom_dict):
-    """
-    Flat list of every atom's coordinates for the given residue keys, one
-    entry per atom: {"residue": res, "center": [x, y, z]}.
+    """Build a flat list of per-atom coordinates for the given residue keys.
 
     Used for true per-atom density masking in the viewer: the frontend
     clips the isosurface to a small sphere around *each* atom (radius
@@ -137,6 +286,23 @@ def residue_atom_centers(residues, res_atom_dict, ligand_res_atom_dict):
     atom lists are already known from the analysis, this lets the density
     shown for each layer trace the actual atoms of that layer, rather than
     everything inside a loose enclosing volume.
+
+    Args:
+        residues (iterable): Iterable of residue key strings to collect
+            atom centers for.
+        res_atom_dict (dict): Mapping of residue key to a collection of
+            :class:`core.pdb_atom.PdbAtom` for protein/nucleic-acid and
+            blacklisted/metal atoms.
+        ligand_res_atom_dict (dict): Mapping of residue key to a
+            collection of :class:`core.pdb_atom.PdbAtom` for ligand
+            atoms.
+
+    Returns:
+        list: A list of dicts, one per atom, each of the form
+        ``{"residue": res, "center": [x, y, z]}``.
+
+    Raises:
+        None
     """
     atoms_out = []
     for res in residues:
@@ -147,6 +313,31 @@ def residue_atom_centers(residues, res_atom_dict, ligand_res_atom_dict):
 
 
 def _dpi(a, b, c, alpha, beta, gamma, natoms, reflections, rfree):
+    """Estimate the diffraction-component precision indicator (DPI).
+
+    Computes the DPI using the unit-cell dimensions, number of atoms,
+    number of reflections, and R-free value, following the standard DPI
+    formula based on unit-cell volume.
+
+    Args:
+        a (float): Unit cell lattice length A, in Angstrom.
+        b (float): Unit cell lattice length B, in Angstrom.
+        c (float): Unit cell lattice length C, in Angstrom.
+        alpha (float): Unit cell angle alpha, in degrees.
+        beta (float): Unit cell angle beta, in degrees.
+        gamma (float): Unit cell angle gamma, in degrees.
+        natoms (float): Number of atoms (occupancy-weighted) in the
+            structure.
+        reflections (float): Number of reflections used in refinement.
+        rfree (float): The structure's R-free value.
+
+    Returns:
+        float: The estimated DPI value, or ``float("nan")`` if the unit
+        cell volume is non-positive or ``reflections`` is non-positive.
+
+    Raises:
+        None
+    """
     cosa = math.cos(math.radians(alpha))
     cosb = math.cos(math.radians(beta))
     cosg = math.cos(math.radians(gamma))
@@ -161,18 +352,67 @@ def _dpi(a, b, c, alpha, beta, gamma, natoms, reflections, rfree):
 # ---------------------------------------------------------------------------
 
 def _fmt_reskey(comp_id, asym_id, seq_id):
-    """Build a residue key. Thin wrapper kept for call-site compatibility —
-    see core.pdb_atom.format_reskey for the canonical (shared) implementation
-    and why asym_id/seq_id must always be joined with an explicit space."""
+    """Build a residue key.
+
+    Thin wrapper kept for call-site compatibility — see
+    core.pdb_atom.format_reskey for the canonical (shared) implementation
+    and why asym_id/seq_id must always be joined with an explicit space.
+
+    Args:
+        comp_id (str): Component (residue) identifier, e.g. the residue
+            name.
+        asym_id (str): Author-assigned asymmetric unit (chain) identifier.
+        seq_id (int or str): Author-assigned sequence number of the
+            residue.
+
+    Returns:
+        str: The formatted, canonical residue key, as produced by
+        :func:`core.pdb_atom.format_reskey`.
+
+    Raises:
+        None
+    """
     return format_reskey(comp_id, asym_id, seq_id)
 
 
 def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
-    """
-    Parse an mmCIF file (plain or gzip) using gemmi and return the same
-    five-tuple as the original pdbx-based implementation:
-        (natoms, res_atom_dict, ligand_res_atom_dict, notligands, links)
-    or a 1-tuple (error_string,) on failure.
+    """Parse an mmCIF file into atom and covalent-link dictionaries.
+
+    Parses an mmCIF file (plain or gzip) using gemmi, classifying each
+    atom as protein/nucleic-acid, blacklisted ligand/metal, or ligand,
+    and extracting covalent/disulfide/metal-coordination connections.
+
+    Args:
+        mmciffilepath (str): Path to the mmCIF file to parse (may be
+            gzip-compressed).
+        pdbid (str): PDB identifier of the structure, used for logging.
+        inner_distance (float): If falsy (e.g. ``0``), protein/nucleic-acid
+            atoms are not added to ``res_atom_dict``, skipping binding-site
+            distance calculations for non-ligand residues.
+
+    Returns:
+        tuple: On success, a 5-tuple
+        ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands, links)``:
+
+            - natoms (float): Total occupancy-weighted atom count.
+            - res_atom_dict (dict): Mapping of residue key to a set of
+              :class:`core.pdb_atom.PdbAtom` for protein/nucleic-acid and
+              blacklisted/metal atoms.
+            - ligand_res_atom_dict (dict): Mapping of residue key to a set
+              of :class:`core.pdb_atom.PdbAtom` for ligand atoms.
+            - notligands (dict): Mapping of residue key to a reason string
+              for residues excluded from ligand consideration (e.g.
+              blacklisted).
+            - links (list): List of ``(res1, res2, bond_length)`` tuples
+              describing covalent/disulfide/metal-coordination
+              connections.
+
+        On failure, a 1-tuple ``(error_string,)`` describing the parsing
+        error.
+
+    Raises:
+        None: Parsing errors from gemmi are caught internally and
+            returned as a 1-tuple error message instead of propagating.
     """
     natoms = 0
     res_atom_dict = {}
@@ -257,6 +497,44 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
 # ---------------------------------------------------------------------------
 
 def classificate_residue(residue, residue_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg):
+    """Score a residue's electron-density fit and structural quality.
+
+    Accumulates a penalty score based on RSCC, occupancy, RSR, and
+    (optionally) OWAB from ``residue_dict``, plus structure-level R-free,
+    resolution, R-diff, and DPI checks from ``struc_dict`` as enabled by
+    ``cfg``. Based on the final score, the residue is added to exactly one
+    of ``good_rsr``, ``dubious_rsr``, or ``bad_rsr``.
+
+    Args:
+        residue (str): Residue key of the residue being scored, used only
+            for building reason strings.
+        residue_dict (dict or None): Per-residue validation stats with
+            keys such as ``"RSCC"``, ``"RSR"``, ``"occupancy"``, and
+            optionally ``"OWAB"``. If falsy, the residue is scored as
+            having no data.
+        struc_dict (dict or None): Structure-level stats with keys such as
+            ``"rFree"``, ``"Resolution"``, ``"Rdiff"``, and ``"DPI"``. If
+            falsy, structure-dependent checks enabled in ``cfg`` add a
+            large penalty.
+        good_rsr (set): Set of residue keys classified as "good"; updated
+            in place.
+        dubious_rsr (set): Set of residue keys classified as "dubious";
+            updated in place.
+        bad_rsr (set): Set of residue keys classified as "bad"; updated in
+            place.
+        cfg (AnalysisConfig): Analysis configuration providing thresholds
+            and which optional checks to perform.
+
+    Returns:
+        tuple: A 2-tuple ``(score, reason)`` where ``score`` (int) is the
+        cumulative penalty score and ``reason`` (str or None) is a
+        human-readable explanation set when a severe (>=1000) penalty was
+        applied, or ``None`` otherwise.
+
+    Raises:
+        KeyError: If ``residue_dict`` is truthy but missing the
+            ``"occupancy"`` or ``"RSR"`` key.
+    """
     score = 0
     reason = None
 
@@ -326,6 +604,25 @@ def classificate_residue(residue, residue_dict, struc_dict, good_rsr, dubious_rs
 
 
 def validate(residues, good_rsr, bad_rsr, dubious_rsr):
+    """Determine an overall quality label for a set of residues.
+
+    A group of residues is labeled "Good" only if every residue is in
+    ``good_rsr``; otherwise it is "Bad" if any residue is in ``bad_rsr``,
+    "Dubious" if any residue is in ``dubious_rsr``, and "Dubious" as a
+    final fallback.
+
+    Args:
+        residues (set): Set of residue keys to evaluate.
+        good_rsr (set): Set of residue keys classified as "good".
+        bad_rsr (set): Set of residue keys classified as "bad".
+        dubious_rsr (set): Set of residue keys classified as "dubious".
+
+    Returns:
+        str: One of ``"Good"``, ``"Bad"``, or ``"Dubious"``.
+
+    Raises:
+        None
+    """
     if residues <= good_rsr:
         return "Good"
     if residues & bad_rsr:
@@ -340,6 +637,27 @@ def validate(residues, good_rsr, bad_rsr, dubious_rsr):
 # ---------------------------------------------------------------------------
 
 def group_ligands(ligand_residues, links):
+    """Group ligand residue keys into connected ligand components.
+
+    Residues connected by a covalent link that are both ligand residues
+    are merged into the same group. Any remaining residue not linked to
+    another becomes its own singleton group. Overlapping groups are then
+    iteratively merged until none overlap.
+
+    Args:
+        ligand_residues (iterable): Iterable of ligand residue key
+            strings.
+        links (list): List of ``(res1, res2, bond_length)`` tuples
+            describing covalent connections between residues, as returned
+            by :func:`parse_mmcif_file`.
+
+    Returns:
+        list: A list of sets, each set containing the residue keys that
+        belong to the same connected ligand component.
+
+    Raises:
+        None
+    """
     ligands = []
     linked_ligand_res = set()
     ligand_links = []
@@ -394,6 +712,70 @@ def group_ligands(ligand_residues, links):
 def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
                      pdbid, res_atom_dict, ligands, ligand_res_atom_dict,
                      edd_dict, struc_dict, notligands, cfg):
+    """Compute the binding site and quality assessment for a ligand group.
+
+    Identifies all non-ligand residues (and residues from other ligand
+    groups) within contact distance of the given ligand's atoms, checking
+    for disqualifying covalent bonds to blacklisted ligands or metals
+    along the way. Scores the binding site residues and determines overall
+    quality labels for both the ligand and its binding site.
+
+    Args:
+        ligand (set): Set of residue keys belonging to the ligand group
+            being analyzed.
+        ligand_score (int): Precomputed maximum per-residue score for this
+            ligand (from the caller's scoring pass).
+        good_rsr (set): Set of residue keys classified as "good"; may be
+            updated via :func:`classificate_residue`.
+        bad_rsr (set): Set of residue keys classified as "bad"; may be
+            updated via :func:`classificate_residue`.
+        dubious_rsr (set): Set of residue keys classified as "dubious";
+            may be updated via :func:`classificate_residue`.
+        pdbid (str): PDB identifier of the structure (currently unused
+            within the function body but kept for call-site
+            compatibility).
+        res_atom_dict (dict): Mapping of residue key to a collection of
+            :class:`core.pdb_atom.PdbAtom` for protein/nucleic-acid and
+            blacklisted/metal atoms.
+        ligands (list): List of all ligand groups (sets of residue keys)
+            in the structure, used to detect proximity to other ligands.
+        ligand_res_atom_dict (dict): Mapping of residue key to a
+            collection of :class:`core.pdb_atom.PdbAtom` for ligand atoms.
+        edd_dict (dict): Mapping of residue key to per-residue validation
+            stats (RSR, RSCC, occupancy, etc.).
+        struc_dict (dict): Structure-level stats (rFree, resolution,
+            etc.) used for scoring.
+        notligands (dict): Mapping of residue key to disqualification
+            reason strings; updated in place if a covalent disqualifying
+            bond is found.
+        cfg (AnalysisConfig): Analysis configuration providing thresholds
+            and which optional checks to perform.
+
+    Returns:
+        list or tuple: If the ligand is disqualified due to a covalent
+        bond to a blacklisted ligand or metal, a 1-element list
+        ``[reason_string]``. Otherwise, an 8-tuple:
+
+            - ligand (set): The input ligand residue set (possibly
+              unchanged).
+            - inner_binding_site (set): Residue keys within contact
+              distance of the ligand.
+            - rte (set): "Residues to examine" — the union of the binding
+              site and ligand residues not already classified as good.
+            - ligandgood (str): Quality label for the ligand ("Good",
+              "Bad", or "Dubious").
+            - bsgood (str): Quality label for the binding site.
+            - bad_occupancy (list): Residue keys with occupancy below 1 or
+              missing data.
+            - ligand_score (int): The input ``ligand_score``, passed
+              through unchanged.
+            - bs_score (int): Maximum per-residue score among the binding
+              site residues.
+
+    Raises:
+        KeyError: If a ligand residue key is missing from
+            ``ligand_res_atom_dict``.
+    """
     inner_binding_site = set()
     for ligandres in ligand:
         if ligandres in notligands:
@@ -450,14 +832,40 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
 # ---------------------------------------------------------------------------
 
 def parse_binding_site(pdbid, cfg=None):
-    """
-    Analyse a single PDB entry.
+    """Analyse a single PDB entry for ligand binding-site quality.
 
-    Returns a dict:
-      On success:
-        {"pdbid": ..., "ligands": [...], "rejected": {...}, "struc_dict": {...}}
-      On failure:
-        {"pdbid": ..., "error": "reason"}
+    Fetches structure-level refinement stats and per-residue validation
+    data (from either PDB/RCSB or PDB-REDO, per ``cfg.pdb_redo``),
+    downloads and parses the mmCIF model, then classifies each ligand and
+    its binding site by electron-density fit quality, producing
+    JSON-serializable results including bounding boxes and per-atom
+    coordinates for 3D density display.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to analyse. Case is
+            normalized internally.
+        cfg (AnalysisConfig, optional): Analysis configuration. If
+            ``None``, a default :class:`AnalysisConfig` is used.
+
+    Returns:
+        dict: On success, a dict with keys:
+
+            - ``"pdbid"`` (str): The analysed PDB identifier.
+            - ``"ligands"`` (list): List of per-ligand result dicts, each
+              containing ligand/binding-site residues, quality labels,
+              scores, density boxes, and density atom coordinates.
+            - ``"rejected"`` (dict): Mapping of residue key to the reason
+              it was excluded from ligand consideration.
+            - ``"struc_dict"`` (dict): Structure-level statistics with
+              NaN values replaced by ``None`` for JSON safety.
+
+        On failure, a dict of the form
+        ``{"pdbid": pdbid, "error": "reason"}``.
+
+    Raises:
+        None: Fetch and parsing errors are caught internally (or via the
+            helper functions called) and surfaced through the returned
+            ``"error"`` key rather than propagating exceptions.
     """
     if cfg is None:
         cfg = AnalysisConfig()
@@ -673,9 +1081,30 @@ def parse_binding_site(pdbid, cfg=None):
 
 
 def analyse_pdbids(pdbids, cfg=None):
-    """
-    Analyse a list of PDB IDs sequentially and return a list of result dicts.
-    The web layer may call this in a background thread.
+    """Analyse a list of PDB IDs sequentially.
+
+    Calls :func:`parse_binding_site` for each PDB ID in turn, catching and
+    logging any unexpected exception per entry so that one failing entry
+    does not abort the whole batch. The web layer may call this in a
+    background thread.
+
+    Args:
+        pdbids (iterable): Iterable of PDB identifier strings to analyse.
+            Each is stripped of whitespace and lower-cased before
+            analysis.
+        cfg (AnalysisConfig, optional): Analysis configuration shared
+            across all entries. If ``None``, a default
+            :class:`AnalysisConfig` is used.
+
+    Returns:
+        list: A list of result dicts, one per input PDB ID, in the same
+        format returned by :func:`parse_binding_site` (either a success
+        dict or an ``{"pdbid": ..., "error": ...}`` dict).
+
+    Raises:
+        None: Unexpected exceptions from analysing an individual entry are
+            caught, logged, and converted into an error result for that
+            entry rather than propagating.
     """
     if cfg is None:
         cfg = AnalysisConfig()
