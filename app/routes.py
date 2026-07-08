@@ -23,6 +23,7 @@ import re
 import threading
 import uuid
 import logging
+import concurrent.futures
 import requests
 from flask import (
     Blueprint, render_template, request, jsonify, current_app,
@@ -32,7 +33,7 @@ from flask import (
 import core.pdb_utils as pdb_utils
 import core.eds_utils as eds_utils
 import core.pdb_redo_utils as pdb_redo_utils
-from core.rsr_core import AnalysisConfig, analyse_pdbids
+from core.rsr_core import AnalysisConfig, DEFAULT_ANALYSE_WORKERS, parse_binding_site
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("main", __name__)
@@ -94,11 +95,22 @@ def _expand_ids(tokens):
 
 
 def _run_job(job_id, pdbids, cfg, origin_map=None):
+    # Analyse entries concurrently: each one is dominated by network I/O
+    # (mmCIF + validation/stats downloads against RCSB/EBI/PDB-REDO), which
+    # releases the GIL while waiting, so a thread pool gives a large
+    # wall-clock speedup for multi-entry jobs. This is safe because every
+    # PDB ID reads/writes only its own per-entry cache directory (see
+    # core.http_cache.entry_cache_dir) and parse_binding_site() keeps all
+    # of its working state (good_rsr, edd_dict, res_atom_dict, ...) local
+    # to the call — nothing is shared/mutated across entries. `cfg` is
+    # read-only during analysis, so sharing one instance across threads is
+    # fine too.
     origin_map = origin_map or {}
     total = len(pdbids)
-    results = []
-    for i, pdbid in enumerate(pdbids, 1):
-        from core.rsr_core import parse_binding_site
+    results = [None] * total
+    completed = 0
+
+    def _analyse_one(pdbid):
         try:
             res = parse_binding_site(pdbid.strip().lower(), cfg)
         except Exception as exc:
@@ -107,10 +119,28 @@ def _run_job(job_id, pdbids, cfg, origin_map=None):
         # Tag with the UniProt accession that produced this PDB ID, if any,
         # so the frontend can group/label results accordingly.
         res["uniprot"] = origin_map.get(pdbid.strip().lower())
-        results.append(res)
-        with _jobs_lock:
-            _jobs[job_id]["progress"] = i
-            _jobs[job_id]["total"] = total
+        return res
+
+    workers = min(DEFAULT_ANALYSE_WORKERS, total) or 1
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        # future_to_index lets us drop each result into its original slot
+        # in `results` as it completes, so the final order matches the
+        # order pdbids were submitted in — regardless of which one
+        # finishes first.
+        future_to_index = {
+            executor.submit(_analyse_one, pdbid): i
+            for i, pdbid in enumerate(pdbids)
+        }
+        for future in concurrent.futures.as_completed(future_to_index):
+            results[future_to_index[future]] = future.result()
+            completed += 1
+            # This loop runs single-threaded (in _run_job's own background
+            # thread), so `completed`/`results` need no locking — only the
+            # shared `_jobs` dict does, since /api/status/<job_id> reads it
+            # from other request-handling threads concurrently.
+            with _jobs_lock:
+                _jobs[job_id]["progress"] = completed
+                _jobs[job_id]["total"] = total
 
     with _jobs_lock:
         _jobs[job_id]["status"] = "done"

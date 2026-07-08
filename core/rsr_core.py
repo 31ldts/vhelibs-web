@@ -14,6 +14,7 @@
 #
 import math
 import logging
+import concurrent.futures
 
 import gemmi
 
@@ -1080,13 +1081,25 @@ def parse_binding_site(pdbid, cfg=None):
     }
 
 
-def analyse_pdbids(pdbids, cfg=None):
-    """Analyse a list of PDB IDs sequentially.
 
-    Calls :func:`parse_binding_site` for each PDB ID in turn, catching and
-    logging any unexpected exception per entry so that one failing entry
-    does not abort the whole batch. The web layer may call this in a
-    background thread.
+# Default cap on how many PDB entries are analysed concurrently. Each entry's
+# runtime is dominated by network I/O (mmCIF + validation/stats downloads
+# against RCSB/EBI/PDB-REDO), which releases the GIL while waiting, so a
+# modest thread pool gives a large wall-clock speedup for multi-entry jobs.
+# Kept fairly conservative to avoid tripping rate-limiting (HTTP 429) on the
+# upstream APIs, which don't publish official concurrency limits.
+DEFAULT_ANALYSE_WORKERS = 8
+
+
+def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
+    """Analyse a list of PDB IDs concurrently.
+
+    Calls :func:`parse_binding_site` for each PDB ID via a thread pool
+    (since each call is I/O-bound, dominated by network downloads rather
+    than CPU), catching and logging any unexpected exception per entry so
+    that one failing entry does not abort the whole batch. The web layer
+    may call this in a background thread; results preserve the input
+    order regardless of completion order.
 
     Args:
         pdbids (iterable): Iterable of PDB identifier strings to analyse.
@@ -1094,12 +1107,21 @@ def analyse_pdbids(pdbids, cfg=None):
             analysis.
         cfg (AnalysisConfig, optional): Analysis configuration shared
             across all entries. If ``None``, a default
-            :class:`AnalysisConfig` is used.
+            :class:`AnalysisConfig` is used. ``AnalysisConfig`` instances
+            are read-only during analysis, so sharing one across threads
+            is safe.
+        max_workers (int, optional): Maximum number of PDB entries
+            analysed concurrently. Defaults to
+            :data:`DEFAULT_ANALYSE_WORKERS`. Each PDB ID writes only to
+            its own per-entry cache directory (see
+            :func:`core.http_cache.entry_cache_dir`), so entries never
+            contend with each other on disk.
 
     Returns:
-        list: A list of result dicts, one per input PDB ID, in the same
-        format returned by :func:`parse_binding_site` (either a success
-        dict or an ``{"pdbid": ..., "error": ...}`` dict).
+        list: A list of result dicts, one per input PDB ID, **in the same
+        order as the input** (not completion order), in the same format
+        returned by :func:`parse_binding_site` (either a success dict or
+        an ``{"pdbid": ..., "error": ...}`` dict).
 
     Raises:
         None: Unexpected exceptions from analysing an individual entry are
@@ -1108,12 +1130,25 @@ def analyse_pdbids(pdbids, cfg=None):
     """
     if cfg is None:
         cfg = AnalysisConfig()
-    results = []
-    for pdbid in pdbids:
+    pdbids = list(pdbids)
+    results = [None] * len(pdbids)
+    if not pdbids:
+        return results
+
+    def _analyse_one(pdbid):
         try:
-            result = parse_binding_site(pdbid.strip().lower(), cfg)
+            return parse_binding_site(pdbid.strip().lower(), cfg)
         except Exception as exc:
             logger.exception("Unexpected error analysing %s", pdbid)
-            result = {"pdbid": pdbid, "error": str(exc)}
-        results.append(result)
+            return {"pdbid": pdbid, "error": str(exc)}
+
+    workers = min(max_workers, len(pdbids))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_index = {
+            executor.submit(_analyse_one, pdbid): i
+            for i, pdbid in enumerate(pdbids)
+        }
+        for future in concurrent.futures.as_completed(future_to_index):
+            results[future_to_index[future]] = future.result()
+
     return results
