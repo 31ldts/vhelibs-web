@@ -207,7 +207,7 @@
             <label class="layer-control">
               <input type="checkbox" id="chkDensityRTE" checked>
               <span class="layer-swatch swatch-density-rte"></span>
-              Residues to examine
+              Components to examine
             </label>
             <label class="th-label" style="margin-top:8px">
               Contour level (isovalue) <span id="isovalueReadout">1.0σ</span>
@@ -219,7 +219,7 @@
             </label>
           </div>
           <div id="viewerResiduePicker" class="residue-picker hidden">
-            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Residues to examine</h3>
+            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Components to examine</h3>
             <div id="viewerLigandList" class="residue-list"></div>
           </div>
         </div>
@@ -306,10 +306,10 @@
           The Viewer tab renders the model with <a href="https://molstar.org" target="_blank">Mol*</a>,
           with independent, toggleable layers for the protein, ligand, and binding site. When a
           structure has an associated 2Fo-Fc electron density map, it can also be overlaid,
-          segmented per region (ligand / binding site / residues to examine) rather than shown as
+          segmented per region (ligand / binding site / components to examine) rather than shown as
           one whole-model surface. Density is streamed on demand from EBI's density server as small
           boxes around each region and clipped to a sphere around every atom, so you're only ever
-          looking at density that belongs to the residues you're inspecting. The contour level
+          looking at density that belongs to the components you're inspecting. The contour level
           (isovalue, in σ) and the per-atom mask radius are both adjustable live from the sidebar.
           If a structure contains more than one ligand, opening the 3D view for one of them shows
           only that ligand and its own binding site — any other ligand present in the structure is

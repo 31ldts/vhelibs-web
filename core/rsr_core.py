@@ -821,7 +821,7 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
                                         good_rsr, dubious_rsr, bad_rsr, cfg)
         bs_score = max(bs_score, score)
 
-    rte = inner_binding_site | ligand - good_rsr
+    rte = (inner_binding_site | ligand) - good_rsr
     ligandgood = validate(ligand, good_rsr, bad_rsr, dubious_rsr)
     bsgood = validate(inner_binding_site, good_rsr, bad_rsr, dubious_rsr)
     return ligand, inner_binding_site, rte, ligandgood, bsgood, bad_occupancy, ligand_score, bs_score

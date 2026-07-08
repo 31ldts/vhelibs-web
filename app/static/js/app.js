@@ -487,7 +487,7 @@ let currentDensityBoxes = null; // {ligand, binding_site, residues_to_examine} b
 let currentDensityAtoms = null; // {ligand, binding_site, residues_to_examine} per-atom centers, or null
 let currentSource = "PDB"; // "PDB" or "PDB_REDO" — decides where density comes from, see buildMvsData
 let currentAtomRadius = 1.6; // Å, radius of the per-atom density clip sphere (user-adjustable)
-let currentFocusRes = null; // residue string clicked in the "residues to examine" list, or null
+let currentFocusRes = null; // residue string clicked in the "components to examine" list, or null
 const layerState = { protein: true, ligand: true, bs: true }; // structure checkbox state
 const densityLayerState = { ligand: true, bs: true, rte: true }; // density checkbox state
 let currentIsovalue = 1.0; // relative sigma units
@@ -771,7 +771,7 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
     }
   }
 
-  // A residue clicked in the "Residues to examine" list: highlight it in
+  // A residue clicked in the "Components to examine" list: highlight it in
   // white and point the camera at it, overriding the default ligand focus.
   if (focusResidue) {
     const sel = residueSelector(focusResidue);
@@ -957,7 +957,7 @@ function populateResiduePicker(residues) {
   });
 });
 
-// Density region checkboxes (ligand / binding site / residues to examine).
+// Density region checkboxes (ligand / binding site / components to examine).
 ["chkDensityLigand", "chkDensityBS", "chkDensityRTE"].forEach((id, i) => {
   const key = ["ligand", "bs", "rte"][i];
   document.getElementById(id).addEventListener("change", function () {
