@@ -1,8 +1,85 @@
 # VHELIBS Web
 
-**Validation Helper for LIgands and Binding Sites** – web-based version.
+**Validation Helper for LIgands and Binding Sites** — a web-based rewrite of [VHELIBS](https://doi.org/10.1186/1758-2946-5-36).
 
-## Quick Start
+VHELIBS Web analyses protein–ligand complexes from PDB structures. For every ligand it finds, it
+evaluates the ligand itself and its surrounding binding site against real-space and refinement
+quality metrics, then classifies each as **Good**, **Dubious**, or **Bad** based on thresholds you
+control. Results can be filtered interactively and inspected residue-by-residue in an integrated
+3D viewer, together with the experimental electron density around each region.
+
+Where the original VHELIBS was a Java/Jython + Cython desktop application, this version is a pure
+Python (Flask) backend with a lightweight JavaScript frontend — no compilation step, no desktop
+dependencies. `pip install`, run, and it opens in your browser.
+
+---
+
+## Table of contents
+
+- [Why VHELIBS](#why-vhelibs)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Using the app](#using-the-app)
+  - [Analysis tab](#analysis-tab)
+  - [Results tab](#results-tab)
+  - [3D Viewer tab](#3d-viewer-tab)
+- [How an analysis works](#how-an-analysis-works)
+- [Classification criteria](#classification-criteria)
+- [Project structure](#project-structure)
+- [REST API](#rest-api)
+- [Data sources](#data-sources)
+- [Migration notes](#migration-notes-vs-the-original-vhelibs)
+- [Citation](#citation)
+
+---
+
+## Why VHELIBS
+
+X-ray structures deposited in the PDB vary widely in local quality. A ligand can sit in a
+beautifully refined pocket — or in electron density that barely supports its pose. Relying on the
+PDB ID or the structure's overall resolution alone isn't enough: two ligands in the *same*
+structure can have very different real-space support. VHELIBS automates the residue-level checks
+a crystallographer would normally do by eye (real-space R-factor, real-space correlation
+coefficient, occupancy, refinement statistics) and turns them into a simple, actionable
+**Good / Dubious / Bad** verdict per ligand and per binding site, so you can quickly triage which
+structures are safe to use for docking, pharmacophore modelling, or structure-based design.
+
+## Features
+
+- **Batch analysis** of PDB IDs and/or UniProt accessions (each UniProt accession is
+  auto-expanded, via the RCSB Search API, to every PDB structure that references it).
+- **Configurable quality thresholds** with sensible crystallographic defaults (RSR, RSCC,
+  occupancy, R-free, tolerance, binding-site distance cutoff).
+- **Optional advanced checks**, off by default: OWAB, structure-wide resolution, R-diff
+  (|R-free − R-work|), and DPI (diffraction-component precision index).
+- **PDB-REDO integration** — analyse the re-refined structure and statistics instead of the
+  original RCSB/PDBe deposition.
+- **Interactive results view**: every ligand and binding site is scored independently, and the
+  Results tab lets you toggle Good/Dubious/Bad on each axis (plus a separate toggle for structures
+  that couldn't be analysed) to filter down to exactly the combination you care about — e.g. every
+  *Bad* ligand sitting in a *Dubious* binding site.
+- **Integrated Mol\* 3D viewer** with independently toggleable protein/ligand/binding-site
+  layers, per-region 2Fo-Fc electron density overlay (streamed on demand and clipped to a sphere
+  around each atom rather than the whole structure), and live-adjustable contour level (isovalue)
+  and atom-mask radius.
+- **Disk caching** of every downloaded structure/statistics file, so re-running an analysis (or
+  re-opening the 3D viewer) doesn't re-hit external APIs.
+
+## Quick start
+
+> **Tip:** it's good practice to install dependencies inside a virtual environment rather than system-wide. Create and activate one first if you'd like:
+>
+> **macOS / Linux**
+> ```bash
+> python3 -m venv venv
+> source venv/bin/activate
+> ```
+>
+> **Windows (PowerShell)**
+> ```powershell
+> python -m venv venv
+> venv\Scripts\Activate.ps1
+> ```
 
 ```bash
 pip install -r requirements.txt
@@ -11,12 +88,7 @@ python run.py
 
 Then open <http://localhost:8000> in your browser.
 
-## Requirements
-
-- Python 3.8+
-- Packages: `flask`, `requests`, `gemmi`
-
-## Usage
+### Command-line options
 
 ```
 python run.py [--host HOST] [--port PORT] [--cache-dir PATH] [--no-browser] [--debug]
@@ -30,7 +102,101 @@ python run.py [--host HOST] [--port PORT] [--cache-dir PATH] [--no-browser] [--d
 | `--no-browser` | off | Suppress automatic browser launch |
 | `--debug` | off | Enable Flask debug/reloader (dev only) |
 
-## Project Structure
+### Requirements
+
+- Python 3.8+
+- Packages: `flask`, `requests`, `gemmi` (see `requirements.txt`)
+- A browser with WebGL support (for the 3D viewer, powered by [Mol\*](https://molstar.org))
+
+## Using the app
+
+The app is a single-page interface with four tabs: **Analysis**, **Results**, **3D Viewer**, and
+**About**.
+
+### Analysis tab
+
+1. Enter one or more **PDB IDs and/or UniProt accessions** in the text box, separated by commas,
+   whitespace, or newlines (e.g. `1cbs, 3dzu, 4hhb, P00734`) — or load them from a `.txt`/`.csv`
+   file. UniProt accessions are automatically resolved to every associated PDB structure.
+2. Optionally check **Use PDB-REDO structures** to analyse PDB-REDO's re-refined coordinates and
+   statistics instead of the standard RCSB/PDBe deposition.
+3. Adjust the **quality thresholds** (RSR, RSCC, R-free, occupancy, tolerance, binding-site
+   distance) if the defaults don't suit your use case, and optionally expand **Advanced options**
+   to enable OWAB / resolution / R-diff / DPI checks.
+4. Click **Analyse**. A progress bar tracks the job as each structure is downloaded and scored;
+   when it finishes you're taken straight to the Results tab.
+
+### Results tab
+
+Each analysed structure appears as a collapsible card showing its R-free/R-work/resolution and
+the number of ligands found; click a card to expand it and see every ligand, its binding-site
+residues, low-occupancy warnings, and any residues excluded from scoring due to missing
+validation data (listed under "rejected"). Structures that couldn't be analysed (e.g. unavailable
+validation data) appear as separate error cards.
+
+At the top of the tab, two rows of **toggle filters** — one for Ligand quality, one for Binding
+site quality (Good / Dubious / Bad), each showing how many ligands currently have that
+classification — let you narrow the view to exactly the combination you want (e.g. Ligand = Bad
++ Binding site = Dubious). A third toggle shows or hides structures that weren't found /
+couldn't be analysed. **Show all** resets every toggle back on.
+
+Each ligand entry has a **View 3D** button that jumps straight to the 3D Viewer tab, loaded with
+that ligand, its binding site, and (if available) its electron density.
+
+### 3D Viewer tab
+
+Renders the model with [Mol\*](https://molstar.org). You can:
+
+- Load any PDB ID directly (via the sidebar input), independent of a prior analysis.
+- Toggle the **protein**, **ligand**, and **binding site** representations independently.
+- Overlay the **2Fo-Fc electron density**, segmented per region (ligand / binding site / residues
+  to examine) instead of as one whole-model surface — density is streamed on demand from EBI's
+  density server as small boxes around each region, then clipped to a small sphere around every
+  atom of that region, so you only ever see density belonging to the residues you're inspecting.
+- Adjust the **contour level (isovalue, in σ)** and the **per-atom mask radius** live from the
+  sidebar sliders.
+- Click through a ligand's **residues to examine** in the sidebar list to focus the camera on each
+  one in turn.
+
+## How an analysis works
+
+For each PDB ID, VHELIBS downloads the mmCIF model (from RCSB, or from PDB-REDO if that option is
+checked) together with per-residue real-space validation statistics (from PDBe's EDS validation
+report, or from PDB-REDO's own re-refinement data). Ligands that are known solvents, buffers,
+ions, or crystallisation additives — or that are covalently bound to the protein chain — are
+filtered out using built-in metal/blacklist tables rather than being scored as ligands. Remaining
+ligands are grouped into complexes (covalently linked HETATM groups count as one ligand), and
+every residue within the binding-site distance cutoff is collected as that ligand's binding site.
+
+## Classification criteria
+
+Each ligand and binding-site residue is scored against the active criteria; every criterion it
+fails adds one "fail point":
+
+| Metric | Default threshold | Effect on score |
+|--------|-------------------|------------------|
+| RSR (real-space R-factor) | ≤ 0.24 good · 0.24–0.40 → +1 · > 0.40 → +2 | +1 or +2 |
+| RSCC (real-space correlation coefficient) | > 0.9 | +1 if below |
+| Occupancy | = 1.0 | +1 if below · error if > 1.0 |
+| R-free | < 1.0 | +1 if above |
+
+A residue's total score maps to a bucket: `0` → **Good**, `1..tolerance` → **Dubious**,
+`> tolerance` → **Bad** (`tolerance` defaults to 2). A ligand or binding site then takes the worst
+classification of its own residues (any Bad → Bad; else any Dubious → Dubious; else Good).
+Residues with missing validation data are excluded from scoring and reported under `rejected`
+instead.
+
+Enabling any of the **advanced checks** below (all off by default) adds further fail points on
+the same scale:
+
+| Metric | Default threshold | Notes |
+|--------|-------------------|-------|
+| OWAB | < 50 | Occupancy-weighted average B-factor, per residue |
+| Resolution | ≤ 3.5 Å | Structure-wide, from RCSB or PDB-REDO refinement stats |
+| R-diff | ≤ 0.05 | \|R-free − R-work\|, flags possible over-refinement |
+| DPI | < 0.42 | Diffraction-component precision index, estimated from cell volume, atom count, reflection count and R-free |
+
+## Project structure
 
 ```
 vhelibs-web/
@@ -45,33 +211,31 @@ vhelibs-web/
 │   └── templates/
 │       └── index.html
 └── core/
-    ├── cofactors.py         # Metal/blacklist data (unchanged from original)
-    ├── pdb_atom.py          # Pure-Python PdbAtom (replaces Cython cPdbAtom)
-    ├── pdb_utils.py         # PDB/mmCIF download + RCSB stats (from PDBfiles.py)
-    ├── eds_utils.py         # EDS validation XML fetch (from EDS_parser.py)
-    ├── pdb_redo_utils.py    # PDB-REDO integration (from pdb_redo.py)
-    └── rsr_core.py          # Analysis engine returning JSON (from rsr_analysis.py)
+    ├── cofactors.py         # Metal/blacklist lookup tables
+    ├── pdb_atom.py          # Pure-Python PdbAtom + canonical residue-key formatting
+    ├── http_cache.py        # Shared download + on-disk JSON cache helpers
+    ├── pdb_utils.py         # PDB/mmCIF download + RCSB stats, UniProt → PDB resolution
+    ├── eds_utils.py         # EDS validation XML fetch + electron density map fetch
+    ├── pdb_redo_utils.py    # PDB-REDO integration (structures, stats, density map)
+    └── rsr_core.py          # Analysis engine — orchestrates the above and returns JSON
 ```
 
-## Migration Notes
+A few notes on the core modules:
 
-| Old file | New location | Key changes |
-|----------|-------------|-------------|
-| `rsr_analysis.py` | `core/rsr_core.py` + `app/routes.py` | Removed argparse/multiprocessing; returns dicts; mmCIF parsing now via `gemmi` instead of `pdbx`; adds PDB-REDO, OWAB/resolution/R-diff/DPI checks, and per-region density boxes/atoms for the 3D viewer |
-| `PDBfiles.py` | `core/pdb_utils.py` | `urllib` → `requests`; proper SSL |
-| `EDS_parser.py` | `core/eds_utils.py` | Same; proper SSL; logging |
-| `pdb_redo.py` | `core/pdb_redo_utils.py` | Removed Java locale hack |
-| `PdbAtom.py` | `core/pdb_atom.py` | Kept pure Python; added `__hash__` |
-| `cofactors.py` | `core/cofactors.py` | Essentially unchanged |
-| `cPdbAtom.pyx` | *(removed)* | Pure Python is fast enough |
-| `visualitzador.py` | `app/templates/index.html` + `app/static/js/app.js` | Jmol/Swing → NGL Viewer → Mol* Viewer |
-| `Main.java`, `PdbAtomJava.java` | *(removed)* | No Java required |
-| `multithreading.py` | *(removed)* | Flask threaded + Python threading |
-| `argparse.py` | *(removed)* | Bundled copy not needed in Python 3 |
-| `setup.py` | *(removed)* | No Cython compilation |
-| `vhelibs.sh` | *(removed)* | Use `python run.py` |
+- **`http_cache.py`** is the single place the "check local cache, download with retries, log and
+  swallow errors" pattern lives — `pdb_utils.py`, `eds_utils.py`, and `pdb_redo_utils.py` each
+  keep their own decisions about *what* to cache and *how* to parse it, but delegate the actual
+  network I/O and disk caching here.
+- **`pdb_atom.py`**'s `format_reskey()` is the single source of truth for residue-key formatting
+  and is used across `rsr_core`, `eds_utils`, and `pdb_redo_utils` — they must agree byte-for-byte
+  since these keys are cross-referenced by plain string equality between parsed atoms and
+  validation statistics.
+- **`rsr_core.py`** is the analysis engine: it ties structure parsing (via
+  [`gemmi`](https://gemmi.readthedocs.io)), validation-statistics lookup, and scoring together,
+  and additionally computes the per-region density bounding boxes/atom centers (`density_boxes`,
+  `density_atoms`) consumed by the 3D viewer.
 
-## API
+## REST API
 
 ### `POST /api/analyse`
 
@@ -100,23 +264,9 @@ vhelibs-web/
 ```
 
 `pdbids` accepts PDB IDs, UniProt accessions, or a mix of both, separated by commas, whitespace,
-or newlines. Each UniProt accession (e.g. `P00734`) is resolved via the RCSB Search API to every
-PDB entry whose polymer entities reference it, and every one of those entries is queued for
-analysis alongside any plain PDB IDs given. If a UniProt accession doesn't resolve to any entry,
-it's omitted and reported back in an optional `warnings` array in the response (see below).
-
-The last eight fields are the *advanced* (opt-in) checks, off by default. When enabled, each
-adds its own pass/fail criterion on top of the core RSR/RSCC/occupancy/R-free scoring:
-
-| Field | Checks | Notes |
-|-------|--------|-------|
-| `check_owab` / `owab_max` | Occupancy-weighted average B-factor, per residue | fails if OWAB ≥ `owab_max` |
-| `check_resolution` / `resolution_max` | Structure-wide resolution | from RCSB or PDB-REDO refinement stats |
-| `use_rdiff` / `rdiff_max` | \|R-free − R-work\| | flags possible over-refinement |
-| `use_dpi` / `dpi_max` | Diffraction-component precision index | estimated from cell volume, atom count, reflection count and R-free |
-
-When `use_pdb_redo` is true, both the structure model and the per-residue validation statistics
-are fetched from [PDB-REDO](https://pdb-redo.eu) instead of RCSB/PDBe.
+or newlines. Each UniProt accession is resolved via the RCSB Search API to every PDB entry whose
+polymer entities reference it; unresolvable accessions are omitted and reported in an optional
+`warnings` array in the response.
 
 **Response:**
 
@@ -124,25 +274,18 @@ are fetched from [PDB-REDO](https://pdb-redo.eu) instead of RCSB/PDBe.
 { "job_id": "uuid", "total": 2 }
 ```
 
-If `pdbids` included a UniProt accession that couldn't be resolved to any PDB entry, the
-response also includes:
-
-```json
-{ "job_id": "uuid", "total": 2, "warnings": ["No PDB entries found for UniProt accession P99999"] }
-```
-
-`total` reflects the number of PDB entries actually queued for analysis, i.e. after expanding
-any UniProt accessions in the request.
+`total` reflects the number of PDB entries actually queued for analysis, i.e. after expanding any
+UniProt accessions in the request.
 
 ### `GET /api/status/<job_id>`
 
-**Response while running:**
+**While running:**
 
 ```json
 { "status": "running", "progress": 1, "total": 2, "results": null }
 ```
 
-**Response when done:**
+**When done:**
 
 ```json
 {
@@ -156,8 +299,8 @@ any UniProt accessions in the request.
       "ligands": [
         {
           "ligand_residues": ["REA A  200"],
-          "binding_site_residues": ["TYR A   60", ...],
-          "residues_to_examine": [...],
+          "binding_site_residues": ["TYR A   60", "..."],
+          "residues_to_examine": ["..."],
           "ligand_quality": "Good",
           "binding_site_quality": "Good",
           "source": "PDB",
@@ -166,14 +309,14 @@ any UniProt accessions in the request.
           "low_occupancy": [],
           "other_ligands": [],
           "density_boxes": {
-            "ligand": { "min": [x, y, z], "max": [x, y, z] },
-            "binding_site": { "min": [x, y, z], "max": [x, y, z] },
-            "residues_to_examine": { "min": [x, y, z], "max": [x, y, z] }
+            "ligand": { "min": [0, 0, 0], "max": [0, 0, 0] },
+            "binding_site": { "min": [0, 0, 0], "max": [0, 0, 0] },
+            "residues_to_examine": { "min": [0, 0, 0], "max": [0, 0, 0] }
           },
           "density_atoms": {
-            "ligand": [{ "residue": "REA A  200", "center": [x, y, z] }, ...],
-            "binding_site": [...],
-            "residues_to_examine": [...]
+            "ligand": [{ "residue": "REA A  200", "center": [0, 0, 0] }],
+            "binding_site": [],
+            "residues_to_examine": []
           }
         }
       ],
@@ -185,54 +328,28 @@ any UniProt accessions in the request.
 ```
 
 `density_boxes` gives a padded bounding box per region, used to size the on-demand download
-window from EBI's density server (see `core/eds_utils.py:edm_box_url`). `density_atoms` gives
-the actual per-atom coordinates of each region, used by the 3D viewer to clip the displayed
-density to a small sphere around each atom rather than showing everything inside the box.
-Both are only populated for X-ray entries with usable validation/density data; a region with no
-atoms (e.g. a fully solvent-exposed ligand with `distance: 0`) yields `null`/an empty list.
+window from EBI's density server. `density_atoms` gives the per-atom coordinates of each region,
+used by the 3D viewer to clip displayed density to a small sphere around each atom. Both are only
+populated for X-ray entries with usable validation/density data.
 
 `uniprot` is the UniProt accession that produced this PDB entry, or `null` if it was given
 directly as a PDB ID. `other_ligands` lists residues belonging to any *other* ligand present in
-the same structure (e.g. a second ligand close enough to have been pulled into this one's
-binding site) — these still count towards this ligand's own scoring, but are deliberately
-excluded from `binding_site_residues`, `residues_to_examine`, `density_boxes` and
-`density_atoms`, so the 3D viewer for a given ligand never shows another ligand from the same
-structure.
+the same structure (still counted towards this ligand's own scoring, but excluded from
+`binding_site_residues`/`residues_to_examine`/`density_boxes`/`density_atoms` so the 3D viewer
+never leaks another ligand into the current scene).
 
-## Classification
+## Data sources
 
-Each ligand and binding-site residue is scored against the active criteria; every criterion it
-fails adds one "fail point":
-
-| Metric | Default threshold | Effect on score |
-|--------|-------------------|------------------|
-| RSR | ≤ 0.24 good · 0.24–0.40 → +1 · > 0.40 → +2 | +1 or +2 |
-| RSCC | > 0.9 | +1 if below |
-| Occupancy | = 1.0 | +1 if below · error if > 1.0 |
-| R-free | < 1.0 | +1 if above |
-
-A residue's total score maps to a bucket: `0` → **Good**, `1..tolerance` → **Dubious**,
-`> tolerance` → **Bad** (`tolerance` defaults to 2). A ligand or binding site then takes the
-worst classification of its own residues (any Bad → Bad; else any Dubious → Dubious; else Good).
-Residues with missing validation data are excluded from scoring and reported under `rejected`
-instead. Enabling any of the advanced checks (OWAB, resolution, R-diff, DPI — see the API section
-above) adds further +1 fail points on the same scale.
-
-## 3D Viewer
-
-The Viewer tab renders the model with [Mol*](https://molstar.org), with independent toggleable
-layers for protein, ligand, and binding site. When a 2Fo-Fc electron density map is available,
-it can be overlaid per region (ligand / binding site / residues to examine) instead of as one
-whole-model surface: density is streamed on demand from EBI's density server as small boxes
-around each region (`density_boxes`) and clipped to a sphere around every atom of that region
-(`density_atoms`), so only density belonging to the residues being inspected is shown. Both the
-contour level (isovalue, in σ) and the per-atom mask radius are adjustable live from the sidebar.-->
+| Purpose | Source |
+|---------|--------|
+| Structure files | [RCSB PDB](https://www.rcsb.org) (mmCIF format) |
+| Validation statistics | [PDBe validation reports](https://www.ebi.ac.uk/pdbe) |
+| Re-refined structures & statistics | [PDB-REDO](https://pdb-redo.eu) (optional alternative to RCSB) |
+| Electron density maps | EBI's density server (segmented 2Fo-Fc/Fo-Fc volumes) |
+| UniProt → PDB resolution | RCSB Search API |
+| 3D visualisation | [Mol\* Viewer](https://molstar.org) |
 
 ## Citation
 
-Cereto-Massagué A et al. *VHELIBS: a validation helper for ligands and binding sites.*
-J Cheminform 5, 36 (2013). <https://doi.org/10.1186/1758-2946-5-36>
-
-<!--## License
-
-Copyright 2012–2024 Adrià Cereto Massagué.-->
+Cereto-Massagué A *et al.* **VHELIBS: a validation helper for ligands and binding sites.**
+*J Cheminform* 5, 36 (2013). <https://doi.org/10.1186/1758-2946-5-36>
