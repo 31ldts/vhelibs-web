@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module pdb_redo_utils</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">pdb_redo_utils</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Cpdb_redo_utils.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\pdb_redo_utils.py</a></td></tr></table>
+    <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;Copyright&nbsp;2013-2024&nbsp;Adrià&nbsp;Cereto&nbsp;Massagué<br>
+#&nbsp;&nbsp;&nbsp;Migrated&nbsp;to&nbsp;web&nbsp;version.<br>
+#&nbsp;&nbsp;&nbsp;Changes:&nbsp;replaced&nbsp;urllib&nbsp;with&nbsp;requests;&nbsp;removed&nbsp;Java/Jython&nbsp;locale&nbsp;hacks;<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;removed&nbsp;CSV-based&nbsp;legacy&nbsp;fallback;&nbsp;no&nbsp;Cython&nbsp;deps.<br>
+#</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="json.html">json</a><br>
+<a href="logging.html">logging</a><br>
+</td><td class="multicolumn"><a href="os.html">os</a><br>
+<a href="core.pdb_utils.html">core.pdb_utils</a><br>
+</td><td class="multicolumn"><a href="requests.html">requests</a><br>
+</td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-get_EDM"><strong>get_EDM</strong></a>(pdbid)</dt><dd><span class="code">Download&nbsp;(and&nbsp;cache)&nbsp;the&nbsp;PDB-REDO&nbsp;MTZ&nbsp;electron&nbsp;density&nbsp;map&nbsp;file.<br>
+&nbsp;<br>
+If&nbsp;a&nbsp;valid&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the&nbsp;MTZ&nbsp;file&nbsp;already&nbsp;exists&nbsp;locally,&nbsp;the<br>
+download&nbsp;is&nbsp;skipped&nbsp;and&nbsp;the&nbsp;cached&nbsp;path&nbsp;is&nbsp;returned&nbsp;directly.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;str&nbsp;or&nbsp;None:&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;the&nbsp;downloaded&nbsp;(or&nbsp;cached)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;MTZ&nbsp;file,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;the&nbsp;download&nbsp;failed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Download&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`_download`)&nbsp;and&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;function&nbsp;returns&nbsp;``None``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-get_ED_data"><strong>get_ED_data</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;per-residue&nbsp;RSR/RSCC&nbsp;electron-density&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
+&nbsp;<br>
+Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDB-REDO&nbsp;``*_final.json``&nbsp;file&nbsp;for<br>
+the&nbsp;given&nbsp;entry,&nbsp;then&nbsp;parses&nbsp;it&nbsp;into&nbsp;a&nbsp;per-residue&nbsp;dictionary&nbsp;of<br>
+density-fit&nbsp;statistics.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;None:&nbsp;A&nbsp;dictionary&nbsp;mapping&nbsp;residue&nbsp;key&nbsp;(as&nbsp;produced&nbsp;by<br>
+&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.pdb_atom.format_reskey`)&nbsp;to&nbsp;a&nbsp;dict&nbsp;with&nbsp;keys<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"RSR"``&nbsp;and&nbsp;``"RSCC"``&nbsp;(floats).&nbsp;Returns&nbsp;``None``&nbsp;if&nbsp;the&nbsp;file<br>
+&nbsp;&nbsp;&nbsp;&nbsp;could&nbsp;not&nbsp;be&nbsp;downloaded&nbsp;or&nbsp;parsed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Download&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-get_pdbredo_data"><strong>get_pdbredo_data</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;overall&nbsp;structure&nbsp;refinement&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
+&nbsp;<br>
+Retrieves&nbsp;(using&nbsp;a&nbsp;local&nbsp;cache&nbsp;when&nbsp;available)&nbsp;the&nbsp;PDB-REDO<br>
+``data.json``&nbsp;file&nbsp;for&nbsp;the&nbsp;given&nbsp;entry&nbsp;and&nbsp;extracts&nbsp;a&nbsp;set&nbsp;of<br>
+structure-level&nbsp;refinement&nbsp;properties&nbsp;from&nbsp;it.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;None:&nbsp;A&nbsp;dictionary&nbsp;compatible&nbsp;with<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``pdb_utils.get_custom_report()``,&nbsp;containing&nbsp;the&nbsp;keys<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"experimentalTechnique"``,&nbsp;``"rFree"``,&nbsp;``"rWork"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"refinementResolution"``,&nbsp;``"unitCellAngleAlpha"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"unitCellAngleBeta"``,&nbsp;``"unitCellAngleGamma"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"lengthOfUnitCellLatticeA"``,&nbsp;``"lengthOfUnitCellLatticeB"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"lengthOfUnitCellLatticeC"``,&nbsp;and&nbsp;``"nreflections"``.&nbsp;Returns<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``None``&nbsp;if&nbsp;the&nbsp;data&nbsp;could&nbsp;not&nbsp;be&nbsp;fetched&nbsp;or&nbsp;parsed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Fetch,&nbsp;cache,&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>ALLDATA_URL</strong> = 'https://pdb-redo.eu/db/{pdbid}/data.json'<br>
+<strong>PDB_REDO_EDM_URL</strong> = 'https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.mtz'<br>
+<strong>PDB_REDO_ED_DATA_URL</strong> = 'https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.json'<br>
+<strong>logger</strong> = &lt;Logger pdb_redo_utils (WARNING)&gt;</td></tr></table>
+</body></html>

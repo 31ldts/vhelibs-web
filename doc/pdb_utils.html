@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module pdb_utils</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">pdb_utils</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Cpdb_utils.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\pdb_utils.py</a></td></tr></table>
+    <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;Copyright&nbsp;2010-2024&nbsp;Adrià&nbsp;Cereto&nbsp;Massagué<br>
+#&nbsp;&nbsp;&nbsp;Migrated&nbsp;to&nbsp;web&nbsp;version.<br>
+#&nbsp;&nbsp;&nbsp;Changes:&nbsp;uses&nbsp;requests&nbsp;with&nbsp;proper&nbsp;SSL/timeout&nbsp;handling,&nbsp;no&nbsp;Jython/Cython&nbsp;deps,<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CACHEDIR&nbsp;configurable&nbsp;via&nbsp;<a href="#-set_cache_dir">set_cache_dir</a>().<br>
+#</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="json.html">json</a><br>
+<a href="logging.html">logging</a><br>
+</td><td class="multicolumn"><a href="os.html">os</a><br>
+<a href="requests.html">requests</a><br>
+</td><td class="multicolumn"><a href="tempfile.html">tempfile</a><br>
+</td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-get_custom_report"><strong>get_custom_report</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;structure&nbsp;refinement/metadata&nbsp;statistics&nbsp;from&nbsp;the&nbsp;RCSB&nbsp;REST&nbsp;API.<br>
+&nbsp;<br>
+Retrieves&nbsp;(using&nbsp;a&nbsp;local&nbsp;cache&nbsp;when&nbsp;available)&nbsp;the&nbsp;RCSB&nbsp;entry&nbsp;data&nbsp;for<br>
+the&nbsp;given&nbsp;PDB&nbsp;entry&nbsp;and&nbsp;extracts&nbsp;a&nbsp;set&nbsp;of&nbsp;refinement&nbsp;and&nbsp;unit-cell<br>
+statistics&nbsp;from&nbsp;it.&nbsp;Every&nbsp;extracted&nbsp;value&nbsp;has&nbsp;a&nbsp;safe&nbsp;fallback,&nbsp;so&nbsp;a<br>
+missing&nbsp;or&nbsp;null&nbsp;field&nbsp;never&nbsp;causes&nbsp;the&nbsp;whole&nbsp;entry&nbsp;to&nbsp;fail.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;Case&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;normalized&nbsp;internally&nbsp;(upper-cased&nbsp;for&nbsp;the&nbsp;returned&nbsp;dict&nbsp;key,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;for&nbsp;the&nbsp;API&nbsp;request&nbsp;URL).<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dict:&nbsp;A&nbsp;dictionary&nbsp;of&nbsp;the&nbsp;form&nbsp;``{PDBID:&nbsp;rowdict}``&nbsp;where<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``rowdict``&nbsp;contains&nbsp;the&nbsp;keys&nbsp;``"experimentalTechnique"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"rFree"``,&nbsp;``"rWork"``,&nbsp;``"refinementResolution"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"nreflections"``,&nbsp;``"unitCellAngleAlpha"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"unitCellAngleBeta"``,&nbsp;``"unitCellAngleGamma"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``"lengthOfUnitCellLatticeA"``,&nbsp;``"lengthOfUnitCellLatticeB"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;``"lengthOfUnitCellLatticeC"``.&nbsp;Returns&nbsp;an&nbsp;empty&nbsp;dict&nbsp;``{}``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if&nbsp;the&nbsp;entry&nbsp;is&nbsp;unusable&nbsp;(e.g.&nbsp;NMR/cryo-EM&nbsp;with&nbsp;no&nbsp;refinement<br>
+&nbsp;&nbsp;&nbsp;&nbsp;block)&nbsp;or&nbsp;if&nbsp;the&nbsp;data&nbsp;could&nbsp;not&nbsp;be&nbsp;fetched&nbsp;or&nbsp;parsed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Fetch,&nbsp;cache,&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``{}``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-get_pdb_file"><strong>get_pdb_file</strong></a>(pdbcode, pdb_redo=False)</dt><dd><span class="code">Download&nbsp;(and&nbsp;cache)&nbsp;the&nbsp;mmCIF&nbsp;structure&nbsp;file&nbsp;for&nbsp;a&nbsp;PDB&nbsp;entry.<br>
+&nbsp;<br>
+Fetches&nbsp;the&nbsp;mmCIF&nbsp;file&nbsp;either&nbsp;from&nbsp;the&nbsp;standard&nbsp;RCSB&nbsp;file&nbsp;archive&nbsp;or,<br>
+if&nbsp;requested,&nbsp;from&nbsp;PDB-REDO's&nbsp;re-refined&nbsp;coordinate&nbsp;set.&nbsp;If&nbsp;a&nbsp;valid<br>
+cached&nbsp;copy&nbsp;already&nbsp;exists&nbsp;locally,&nbsp;the&nbsp;download&nbsp;is&nbsp;skipped.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbcode&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdb_redo&nbsp;(bool,&nbsp;optional):&nbsp;If&nbsp;``True``,&nbsp;download&nbsp;the&nbsp;PDB-REDO<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;re-refined&nbsp;``.cif``&nbsp;file&nbsp;instead&nbsp;of&nbsp;the&nbsp;standard&nbsp;RCSB<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``.cif.gz``&nbsp;file.&nbsp;Defaults&nbsp;to&nbsp;``False``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;str:&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;the&nbsp;downloaded&nbsp;(or&nbsp;cached)&nbsp;mmCIF<br>
+&nbsp;&nbsp;&nbsp;&nbsp;file,&nbsp;or&nbsp;an&nbsp;empty&nbsp;string&nbsp;``""``&nbsp;if&nbsp;the&nbsp;download&nbsp;failed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Download&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`_download`)&nbsp;and&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;function&nbsp;returns&nbsp;``""``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-get_pdbids_for_uniprot"><strong>get_pdbids_for_uniprot</strong></a>(uniprot_id, max_results=200)</dt><dd><span class="code">Resolve&nbsp;a&nbsp;UniProt&nbsp;accession&nbsp;to&nbsp;the&nbsp;PDB&nbsp;entries&nbsp;that&nbsp;reference&nbsp;it.<br>
+&nbsp;<br>
+Queries&nbsp;the&nbsp;RCSB&nbsp;Search&nbsp;API&nbsp;to&nbsp;find&nbsp;every&nbsp;PDB&nbsp;entry&nbsp;whose&nbsp;polymer<br>
+entities&nbsp;reference&nbsp;the&nbsp;given&nbsp;UniProt&nbsp;accession&nbsp;(e.g.&nbsp;``"P00734"``),<br>
+caching&nbsp;results&nbsp;on&nbsp;disk&nbsp;for&nbsp;subsequent&nbsp;calls.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;uniprot_id&nbsp;(str):&nbsp;UniProt&nbsp;accession&nbsp;to&nbsp;resolve.&nbsp;Leading/trailing<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;whitespace&nbsp;is&nbsp;stripped&nbsp;and&nbsp;the&nbsp;value&nbsp;is&nbsp;upper-cased&nbsp;before<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;max_results&nbsp;(int,&nbsp;optional):&nbsp;Maximum&nbsp;number&nbsp;of&nbsp;PDB&nbsp;entries&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;request&nbsp;from&nbsp;the&nbsp;search&nbsp;API.&nbsp;Defaults&nbsp;to&nbsp;``200``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;list:&nbsp;A&nbsp;sorted&nbsp;list&nbsp;of&nbsp;upper-case&nbsp;4-character&nbsp;PDB&nbsp;IDs&nbsp;referencing<br>
+&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;given&nbsp;UniProt&nbsp;accession.&nbsp;Empty&nbsp;if&nbsp;there&nbsp;are&nbsp;no&nbsp;hits&nbsp;or&nbsp;if&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;network/parse&nbsp;failure&nbsp;occurs;&nbsp;callers&nbsp;should&nbsp;treat&nbsp;an&nbsp;empty&nbsp;list<br>
+&nbsp;&nbsp;&nbsp;&nbsp;as&nbsp;"nothing&nbsp;found"&nbsp;rather&nbsp;than&nbsp;a&nbsp;hard&nbsp;error.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Request&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``[]``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-set_cache_dir"><strong>set_cache_dir</strong></a>(path)</dt><dd><span class="code">Set&nbsp;the&nbsp;directory&nbsp;used&nbsp;to&nbsp;cache&nbsp;downloaded&nbsp;files.<br>
+&nbsp;<br>
+Updates&nbsp;the&nbsp;module-level&nbsp;``CACHEDIR``&nbsp;global&nbsp;to&nbsp;point&nbsp;at&nbsp;``path``&nbsp;and<br>
+ensures&nbsp;the&nbsp;directory&nbsp;exists,&nbsp;creating&nbsp;it&nbsp;(and&nbsp;any&nbsp;missing&nbsp;parent<br>
+directories)&nbsp;if&nbsp;necessary.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;path&nbsp;(str):&nbsp;Filesystem&nbsp;path&nbsp;to&nbsp;use&nbsp;as&nbsp;the&nbsp;new&nbsp;cache&nbsp;directory.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;This&nbsp;function&nbsp;does&nbsp;not&nbsp;return&nbsp;a&nbsp;value;&nbsp;it&nbsp;mutates&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;module-level&nbsp;``CACHEDIR``&nbsp;global&nbsp;in&nbsp;place.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;OSError:&nbsp;If&nbsp;the&nbsp;directory&nbsp;cannot&nbsp;be&nbsp;created&nbsp;(e.g.&nbsp;due&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;insufficient&nbsp;permissions).</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>CACHEDIR</strong> = r'C:\Users\User\AppData\Local\Temp\vhelibs_cache'<br>
+<strong>PDBREDObase_full</strong> = 'https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.cif'<br>
+<strong>PDBbase</strong> = 'https://files.rcsb.org/download/{}.cif.gz'<br>
+<strong>QUERY_TPL</strong> = 'https://data.rcsb.org/rest/v1/core/entry/{}'<br>
+<strong>UNIPROT_SEARCH_URL</strong> = 'https://search.rcsb.org/rcsbsearch/v2/query'<br>
+<strong>logger</strong> = &lt;Logger pdb_utils (WARNING)&gt;</td></tr></table>
+</body></html>

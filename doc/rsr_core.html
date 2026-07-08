@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module rsr_core</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">rsr_core</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Crsr_core.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\rsr_core.py</a></td></tr></table>
+    <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;Copyright&nbsp;2011-2024&nbsp;Adrià&nbsp;Cereto&nbsp;Massagué<br>
+#&nbsp;&nbsp;&nbsp;Migrated&nbsp;to&nbsp;web&nbsp;version.<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;Major&nbsp;changes&nbsp;vs&nbsp;rsr_analysis.py:<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Removed&nbsp;CLI&nbsp;argument&nbsp;parsing&nbsp;(argparse).<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Removed&nbsp;multiprocessing&nbsp;/&nbsp;multithreading&nbsp;pool&nbsp;(not&nbsp;needed&nbsp;for&nbsp;Flask).<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Removed&nbsp;CSV/file&nbsp;output;&nbsp;returns&nbsp;dicts/lists&nbsp;suitable&nbsp;for&nbsp;JSON&nbsp;serialisation.<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Removed&nbsp;Java/Jython/Cython&nbsp;imports;&nbsp;uses&nbsp;pure-Python&nbsp;PdbAtom.<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Uses&nbsp;refactored&nbsp;core.*&nbsp;modules&nbsp;instead&nbsp;of&nbsp;top-level&nbsp;modules.<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Replaced&nbsp;print()&nbsp;with&nbsp;logging.<br>
+#&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;Fixed&nbsp;SSL&nbsp;context&nbsp;hack&nbsp;removed&nbsp;(requests&nbsp;handles&nbsp;SSL&nbsp;properly).<br>
+#</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="core.cofactors.html">core.cofactors</a><br>
+<a href="core.eds_utils.html">core.eds_utils</a><br>
+</td><td class="multicolumn"><a href="gemmi.html">gemmi</a><br>
+<a href="logging.html">logging</a><br>
+</td><td class="multicolumn"><a href="math.html">math</a><br>
+<a href="core.pdb_redo_utils.html">core.pdb_redo_utils</a><br>
+</td><td class="multicolumn"><a href="core.pdb_utils.html">core.pdb_utils</a><br>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor index-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Classes</strong></td></tr>
+    
+<tr><td class="decor index-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl>
+<dt class="heading-text"><a href="builtins.html#object">builtins.object</a>
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="rsr_core.html#AnalysisConfig">AnalysisConfig</a>
+</dt></dl>
+</dd>
+</dl>
+ <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="AnalysisConfig">class <strong>AnalysisConfig</strong></a>(<a href="builtins.html#object">builtins.object</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#AnalysisConfig">AnalysisConfig</a>(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rsr_upper=0.4,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rsr_lower=0.24,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rscc_min=0.9,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rfree_max=1.0,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;occupancy_min=1.0,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tolerance=2,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;distance=4.5,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;check_owab=False,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;owab_max=50.0,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;check_resolution=False,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;resolution_max=3.5,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_rdiff=False,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rdiff_max=0.05,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_dpi=False,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dpi_max=0.42,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdb_redo=False<br>
+)<br>
+&nbsp;<br>
+All&nbsp;tunable&nbsp;parameters&nbsp;for&nbsp;a&nbsp;single&nbsp;analysis&nbsp;run.<br>
+&nbsp;<br>
+Attributes:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rsr_upper&nbsp;(float):&nbsp;Upper&nbsp;RSR&nbsp;(real-space&nbsp;R-factor)&nbsp;threshold&nbsp;above<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;which&nbsp;a&nbsp;residue&nbsp;accrues&nbsp;an&nbsp;extra&nbsp;penalty&nbsp;point.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rsr_lower&nbsp;(float):&nbsp;Lower&nbsp;RSR&nbsp;threshold&nbsp;above&nbsp;which&nbsp;a&nbsp;residue<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;accrues&nbsp;a&nbsp;penalty&nbsp;point.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rscc_min&nbsp;(float):&nbsp;Minimum&nbsp;acceptable&nbsp;RSCC&nbsp;(real-space&nbsp;correlation<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;coefficient);&nbsp;values&nbsp;below&nbsp;this&nbsp;accrue&nbsp;a&nbsp;penalty&nbsp;point.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rfree_max&nbsp;(float):&nbsp;Maximum&nbsp;acceptable&nbsp;structure-level&nbsp;R-free<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;value;&nbsp;values&nbsp;above&nbsp;this&nbsp;accrue&nbsp;a&nbsp;penalty&nbsp;point.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;occupancy_min&nbsp;(float):&nbsp;Minimum&nbsp;acceptable&nbsp;per-residue&nbsp;occupancy;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;values&nbsp;below&nbsp;this&nbsp;(but&nbsp;not&nbsp;above&nbsp;1.0)&nbsp;accrue&nbsp;a&nbsp;penalty&nbsp;point.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tolerance&nbsp;(int):&nbsp;Maximum&nbsp;cumulative&nbsp;score&nbsp;a&nbsp;residue&nbsp;may&nbsp;have&nbsp;while<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;still&nbsp;being&nbsp;classified&nbsp;as&nbsp;"dubious"&nbsp;rather&nbsp;than&nbsp;"bad".<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inner_distance&nbsp;(float):&nbsp;Squared&nbsp;contact&nbsp;distance&nbsp;(Angstrom²)&nbsp;used<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;determine&nbsp;binding-site&nbsp;membership,&nbsp;derived&nbsp;from&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``distance``&nbsp;constructor&nbsp;argument.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;check_owab&nbsp;(bool):&nbsp;Whether&nbsp;to&nbsp;factor&nbsp;per-atom&nbsp;OWAB&nbsp;(occupancy-<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;weighted&nbsp;average&nbsp;B-factor)&nbsp;into&nbsp;residue&nbsp;scoring.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;owab_max&nbsp;(float):&nbsp;Maximum&nbsp;acceptable&nbsp;OWAB&nbsp;value&nbsp;when<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``check_owab``&nbsp;is&nbsp;enabled.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;check_resolution&nbsp;(bool):&nbsp;Whether&nbsp;to&nbsp;factor&nbsp;structure&nbsp;resolution<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;into&nbsp;scoring.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;resolution_max&nbsp;(float):&nbsp;Maximum&nbsp;acceptable&nbsp;resolution&nbsp;(Angstrom)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;when&nbsp;``check_resolution``&nbsp;is&nbsp;enabled.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_rdiff&nbsp;(bool):&nbsp;Whether&nbsp;to&nbsp;factor&nbsp;the&nbsp;R-free/R-work&nbsp;difference<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;into&nbsp;scoring.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rdiff_max&nbsp;(float):&nbsp;Maximum&nbsp;acceptable&nbsp;R-free/R-work&nbsp;difference<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;when&nbsp;``use_rdiff``&nbsp;is&nbsp;enabled.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_dpi&nbsp;(bool):&nbsp;Whether&nbsp;to&nbsp;factor&nbsp;the&nbsp;estimated&nbsp;coordinate<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;precision&nbsp;(DPI)&nbsp;into&nbsp;scoring.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dpi_max&nbsp;(float):&nbsp;Maximum&nbsp;acceptable&nbsp;DPI&nbsp;value&nbsp;when&nbsp;``use_dpi``&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;enabled.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdb_redo&nbsp;(bool):&nbsp;Whether&nbsp;to&nbsp;source&nbsp;structural/refinement&nbsp;data&nbsp;from<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;PDB-REDO&nbsp;instead&nbsp;of&nbsp;the&nbsp;primary&nbsp;PDB/RCSB&nbsp;archive.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn">Methods defined here:<br>
+<dl><dt><a name="AnalysisConfig-__init__"><strong>__init__</strong></a>(
+    self,
+    rsr_upper=0.4,
+    rsr_lower=0.24,
+    rscc_min=0.9,
+    rfree_max=1.0,
+    occupancy_min=1.0,
+    tolerance=2,
+    distance=4.5,
+    check_owab=False,
+    owab_max=50.0,
+    check_resolution=False,
+    resolution_max=3.5,
+    use_rdiff=False,
+    rdiff_max=0.05,
+    use_dpi=False,
+    dpi_max=0.42,
+    pdb_redo=False
+)</dt><dd><span class="code">Initialize&nbsp;an&nbsp;<a href="#AnalysisConfig">AnalysisConfig</a>&nbsp;with&nbsp;the&nbsp;given&nbsp;tunable&nbsp;parameters.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rsr_upper&nbsp;(float,&nbsp;optional):&nbsp;Upper&nbsp;RSR&nbsp;threshold.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``0.4``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rsr_lower&nbsp;(float,&nbsp;optional):&nbsp;Lower&nbsp;RSR&nbsp;threshold.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``0.24``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rscc_min&nbsp;(float,&nbsp;optional):&nbsp;Minimum&nbsp;acceptable&nbsp;RSCC.&nbsp;Defaults<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;``0.9``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rfree_max&nbsp;(float,&nbsp;optional):&nbsp;Maximum&nbsp;acceptable&nbsp;R-free.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``1.0``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;occupancy_min&nbsp;(float,&nbsp;optional):&nbsp;Minimum&nbsp;acceptable<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;occupancy.&nbsp;Defaults&nbsp;to&nbsp;``1.0``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tolerance&nbsp;(int,&nbsp;optional):&nbsp;Score&nbsp;tolerance&nbsp;separating<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"dubious"&nbsp;from&nbsp;"bad"&nbsp;residues.&nbsp;Defaults&nbsp;to&nbsp;``2``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;distance&nbsp;(float,&nbsp;optional):&nbsp;Contact&nbsp;distance&nbsp;in&nbsp;Angstrom&nbsp;used<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;compute&nbsp;``inner_distance``&nbsp;(its&nbsp;square).&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``4.5``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;check_owab&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;to&nbsp;check&nbsp;OWAB.&nbsp;Defaults<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;``False``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;owab_max&nbsp;(float,&nbsp;optional):&nbsp;Maximum&nbsp;acceptable&nbsp;OWAB.&nbsp;Defaults<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;``50.0``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;check_resolution&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;to&nbsp;check<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;resolution.&nbsp;Defaults&nbsp;to&nbsp;``False``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;resolution_max&nbsp;(float,&nbsp;optional):&nbsp;Maximum&nbsp;acceptable<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;resolution.&nbsp;Defaults&nbsp;to&nbsp;``3.5``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_rdiff&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;to&nbsp;use&nbsp;the&nbsp;R-free/R-work<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;difference.&nbsp;Defaults&nbsp;to&nbsp;``False``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;rdiff_max&nbsp;(float,&nbsp;optional):&nbsp;Maximum&nbsp;acceptable&nbsp;R-free/R-work<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;difference.&nbsp;Defaults&nbsp;to&nbsp;``0.05``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_dpi&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;to&nbsp;use&nbsp;DPI.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``False``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dpi_max&nbsp;(float,&nbsp;optional):&nbsp;Maximum&nbsp;acceptable&nbsp;DPI.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``0.42``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdb_redo&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;to&nbsp;source&nbsp;data&nbsp;from<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;PDB-REDO.&nbsp;Defaults&nbsp;to&nbsp;``False``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+
+<hr>
+Data descriptors defined here:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-analyse_pdbids"><strong>analyse_pdbids</strong></a>(pdbids, cfg=None)</dt><dd><span class="code">Analyse&nbsp;a&nbsp;list&nbsp;of&nbsp;PDB&nbsp;IDs&nbsp;sequentially.<br>
+&nbsp;<br>
+Calls&nbsp;:func:`parse_binding_site`&nbsp;for&nbsp;each&nbsp;PDB&nbsp;ID&nbsp;in&nbsp;turn,&nbsp;catching&nbsp;and<br>
+logging&nbsp;any&nbsp;unexpected&nbsp;exception&nbsp;per&nbsp;entry&nbsp;so&nbsp;that&nbsp;one&nbsp;failing&nbsp;entry<br>
+does&nbsp;not&nbsp;abort&nbsp;the&nbsp;whole&nbsp;batch.&nbsp;The&nbsp;web&nbsp;layer&nbsp;may&nbsp;call&nbsp;this&nbsp;in&nbsp;a<br>
+background&nbsp;thread.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbids&nbsp;(iterable):&nbsp;Iterable&nbsp;of&nbsp;PDB&nbsp;identifier&nbsp;strings&nbsp;to&nbsp;analyse.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Each&nbsp;is&nbsp;stripped&nbsp;of&nbsp;whitespace&nbsp;and&nbsp;lower-cased&nbsp;before<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;analysis.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cfg&nbsp;(<a href="#AnalysisConfig">AnalysisConfig</a>,&nbsp;optional):&nbsp;Analysis&nbsp;configuration&nbsp;shared<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;across&nbsp;all&nbsp;entries.&nbsp;If&nbsp;``None``,&nbsp;a&nbsp;default<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`<a href="#AnalysisConfig">AnalysisConfig</a>`&nbsp;is&nbsp;used.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;list:&nbsp;A&nbsp;list&nbsp;of&nbsp;result&nbsp;dicts,&nbsp;one&nbsp;per&nbsp;input&nbsp;PDB&nbsp;ID,&nbsp;in&nbsp;the&nbsp;same<br>
+&nbsp;&nbsp;&nbsp;&nbsp;format&nbsp;returned&nbsp;by&nbsp;:func:`parse_binding_site`&nbsp;(either&nbsp;a&nbsp;success<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;an&nbsp;``{"pdbid":&nbsp;...,&nbsp;"error":&nbsp;...}``&nbsp;dict).<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Unexpected&nbsp;exceptions&nbsp;from&nbsp;analysing&nbsp;an&nbsp;individual&nbsp;entry&nbsp;are<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;caught,&nbsp;logged,&nbsp;and&nbsp;converted&nbsp;into&nbsp;an&nbsp;error&nbsp;result&nbsp;for&nbsp;that<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;entry&nbsp;rather&nbsp;than&nbsp;propagating.</span></dd></dl>
+ <dl><dt><a name="-classificate_residue"><strong>classificate_residue</strong></a>(
+    residue,
+    residue_dict,
+    struc_dict,
+    good_rsr,
+    dubious_rsr,
+    bad_rsr,
+    cfg
+)</dt><dd><span class="code">Score&nbsp;a&nbsp;residue's&nbsp;electron-density&nbsp;fit&nbsp;and&nbsp;structural&nbsp;quality.<br>
+&nbsp;<br>
+Accumulates&nbsp;a&nbsp;penalty&nbsp;score&nbsp;based&nbsp;on&nbsp;RSCC,&nbsp;occupancy,&nbsp;RSR,&nbsp;and<br>
+(optionally)&nbsp;OWAB&nbsp;from&nbsp;``residue_dict``,&nbsp;plus&nbsp;structure-level&nbsp;R-free,<br>
+resolution,&nbsp;R-diff,&nbsp;and&nbsp;DPI&nbsp;checks&nbsp;from&nbsp;``struc_dict``&nbsp;as&nbsp;enabled&nbsp;by<br>
+``cfg``.&nbsp;Based&nbsp;on&nbsp;the&nbsp;final&nbsp;score,&nbsp;the&nbsp;residue&nbsp;is&nbsp;added&nbsp;to&nbsp;exactly&nbsp;one<br>
+of&nbsp;``good_rsr``,&nbsp;``dubious_rsr``,&nbsp;or&nbsp;``bad_rsr``.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;residue&nbsp;(str):&nbsp;Residue&nbsp;key&nbsp;of&nbsp;the&nbsp;residue&nbsp;being&nbsp;scored,&nbsp;used&nbsp;only<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for&nbsp;building&nbsp;reason&nbsp;strings.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;residue_dict&nbsp;(dict&nbsp;or&nbsp;None):&nbsp;Per-residue&nbsp;validation&nbsp;stats&nbsp;with<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;keys&nbsp;such&nbsp;as&nbsp;``"RSCC"``,&nbsp;``"RSR"``,&nbsp;``"occupancy"``,&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;optionally&nbsp;``"OWAB"``.&nbsp;If&nbsp;falsy,&nbsp;the&nbsp;residue&nbsp;is&nbsp;scored&nbsp;as<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;having&nbsp;no&nbsp;data.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;struc_dict&nbsp;(dict&nbsp;or&nbsp;None):&nbsp;Structure-level&nbsp;stats&nbsp;with&nbsp;keys&nbsp;such&nbsp;as<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"rFree"``,&nbsp;``"Resolution"``,&nbsp;``"Rdiff"``,&nbsp;and&nbsp;``"DPI"``.&nbsp;If<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;falsy,&nbsp;structure-dependent&nbsp;checks&nbsp;enabled&nbsp;in&nbsp;``cfg``&nbsp;add&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;large&nbsp;penalty.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;good_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"good";&nbsp;updated<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;in&nbsp;place.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dubious_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"dubious";<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;updated&nbsp;in&nbsp;place.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bad_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"bad";&nbsp;updated&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;place.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cfg&nbsp;(<a href="#AnalysisConfig">AnalysisConfig</a>):&nbsp;Analysis&nbsp;configuration&nbsp;providing&nbsp;thresholds<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;which&nbsp;optional&nbsp;checks&nbsp;to&nbsp;perform.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;A&nbsp;2-tuple&nbsp;``(score,&nbsp;reason)``&nbsp;where&nbsp;``score``&nbsp;(int)&nbsp;is&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cumulative&nbsp;penalty&nbsp;score&nbsp;and&nbsp;``reason``&nbsp;(str&nbsp;or&nbsp;None)&nbsp;is&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;human-readable&nbsp;explanation&nbsp;set&nbsp;when&nbsp;a&nbsp;severe&nbsp;(&gt;=1000)&nbsp;penalty&nbsp;was<br>
+&nbsp;&nbsp;&nbsp;&nbsp;applied,&nbsp;or&nbsp;``None``&nbsp;otherwise.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;KeyError:&nbsp;If&nbsp;``residue_dict``&nbsp;is&nbsp;truthy&nbsp;but&nbsp;missing&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"occupancy"``&nbsp;or&nbsp;``"RSR"``&nbsp;key.</span></dd></dl>
+ <dl><dt><a name="-get_binding_site"><strong>get_binding_site</strong></a>(
+    ligand,
+    ligand_score,
+    good_rsr,
+    bad_rsr,
+    dubious_rsr,
+    pdbid,
+    res_atom_dict,
+    ligands,
+    ligand_res_atom_dict,
+    edd_dict,
+    struc_dict,
+    notligands,
+    cfg
+)</dt><dd><span class="code">Compute&nbsp;the&nbsp;binding&nbsp;site&nbsp;and&nbsp;quality&nbsp;assessment&nbsp;for&nbsp;a&nbsp;ligand&nbsp;group.<br>
+&nbsp;<br>
+Identifies&nbsp;all&nbsp;non-ligand&nbsp;residues&nbsp;(and&nbsp;residues&nbsp;from&nbsp;other&nbsp;ligand<br>
+groups)&nbsp;within&nbsp;contact&nbsp;distance&nbsp;of&nbsp;the&nbsp;given&nbsp;ligand's&nbsp;atoms,&nbsp;checking<br>
+for&nbsp;disqualifying&nbsp;covalent&nbsp;bonds&nbsp;to&nbsp;blacklisted&nbsp;ligands&nbsp;or&nbsp;metals<br>
+along&nbsp;the&nbsp;way.&nbsp;Scores&nbsp;the&nbsp;binding&nbsp;site&nbsp;residues&nbsp;and&nbsp;determines&nbsp;overall<br>
+quality&nbsp;labels&nbsp;for&nbsp;both&nbsp;the&nbsp;ligand&nbsp;and&nbsp;its&nbsp;binding&nbsp;site.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;belonging&nbsp;to&nbsp;the&nbsp;ligand&nbsp;group<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;being&nbsp;analyzed.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_score&nbsp;(int):&nbsp;Precomputed&nbsp;maximum&nbsp;per-residue&nbsp;score&nbsp;for&nbsp;this<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ligand&nbsp;(from&nbsp;the&nbsp;caller's&nbsp;scoring&nbsp;pass).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;good_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"good";&nbsp;may&nbsp;be<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;updated&nbsp;via&nbsp;:func:`classificate_residue`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bad_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"bad";&nbsp;may&nbsp;be<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;updated&nbsp;via&nbsp;:func:`classificate_residue`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dubious_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"dubious";<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;may&nbsp;be&nbsp;updated&nbsp;via&nbsp;:func:`classificate_residue`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;(currently&nbsp;unused<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;within&nbsp;the&nbsp;function&nbsp;body&nbsp;but&nbsp;kept&nbsp;for&nbsp;call-site<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;compatibility).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;collection&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;protein/nucleic-acid&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;blacklisted/metal&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligands&nbsp;(list):&nbsp;List&nbsp;of&nbsp;all&nbsp;ligand&nbsp;groups&nbsp;(sets&nbsp;of&nbsp;residue&nbsp;keys)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;in&nbsp;the&nbsp;structure,&nbsp;used&nbsp;to&nbsp;detect&nbsp;proximity&nbsp;to&nbsp;other&nbsp;ligands.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collection&nbsp;of&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;ligand&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;edd_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;per-residue&nbsp;validation<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stats&nbsp;(RSR,&nbsp;RSCC,&nbsp;occupancy,&nbsp;etc.).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;struc_dict&nbsp;(dict):&nbsp;Structure-level&nbsp;stats&nbsp;(rFree,&nbsp;resolution,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;etc.)&nbsp;used&nbsp;for&nbsp;scoring.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;notligands&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;disqualification<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reason&nbsp;strings;&nbsp;updated&nbsp;in&nbsp;place&nbsp;if&nbsp;a&nbsp;covalent&nbsp;disqualifying<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;bond&nbsp;is&nbsp;found.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cfg&nbsp;(<a href="#AnalysisConfig">AnalysisConfig</a>):&nbsp;Analysis&nbsp;configuration&nbsp;providing&nbsp;thresholds<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;which&nbsp;optional&nbsp;checks&nbsp;to&nbsp;perform.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;list&nbsp;or&nbsp;tuple:&nbsp;If&nbsp;the&nbsp;ligand&nbsp;is&nbsp;disqualified&nbsp;due&nbsp;to&nbsp;a&nbsp;covalent<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bond&nbsp;to&nbsp;a&nbsp;blacklisted&nbsp;ligand&nbsp;or&nbsp;metal,&nbsp;a&nbsp;1-element&nbsp;list<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``[reason_string]``.&nbsp;Otherwise,&nbsp;an&nbsp;8-tuple:<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;ligand&nbsp;(set):&nbsp;The&nbsp;input&nbsp;ligand&nbsp;residue&nbsp;set&nbsp;(possibly<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unchanged).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;inner_binding_site&nbsp;(set):&nbsp;Residue&nbsp;keys&nbsp;within&nbsp;contact<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;distance&nbsp;of&nbsp;the&nbsp;ligand.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;rte&nbsp;(set):&nbsp;"Residues&nbsp;to&nbsp;examine"&nbsp;—&nbsp;the&nbsp;union&nbsp;of&nbsp;the&nbsp;binding<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;site&nbsp;and&nbsp;ligand&nbsp;residues&nbsp;not&nbsp;already&nbsp;classified&nbsp;as&nbsp;good.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;ligandgood&nbsp;(str):&nbsp;Quality&nbsp;label&nbsp;for&nbsp;the&nbsp;ligand&nbsp;("Good",<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"Bad",&nbsp;or&nbsp;"Dubious").<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;bsgood&nbsp;(str):&nbsp;Quality&nbsp;label&nbsp;for&nbsp;the&nbsp;binding&nbsp;site.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;bad_occupancy&nbsp;(list):&nbsp;Residue&nbsp;keys&nbsp;with&nbsp;occupancy&nbsp;below&nbsp;1&nbsp;or<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;missing&nbsp;data.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;ligand_score&nbsp;(int):&nbsp;The&nbsp;input&nbsp;``ligand_score``,&nbsp;passed<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;through&nbsp;unchanged.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;bs_score&nbsp;(int):&nbsp;Maximum&nbsp;per-residue&nbsp;score&nbsp;among&nbsp;the&nbsp;binding<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;site&nbsp;residues.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;KeyError:&nbsp;If&nbsp;a&nbsp;ligand&nbsp;residue&nbsp;key&nbsp;is&nbsp;missing&nbsp;from<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``ligand_res_atom_dict``.</span></dd></dl>
+ <dl><dt><a name="-group_ligands"><strong>group_ligands</strong></a>(ligand_residues, links)</dt><dd><span class="code">Group&nbsp;ligand&nbsp;residue&nbsp;keys&nbsp;into&nbsp;connected&nbsp;ligand&nbsp;components.<br>
+&nbsp;<br>
+Residues&nbsp;connected&nbsp;by&nbsp;a&nbsp;covalent&nbsp;link&nbsp;that&nbsp;are&nbsp;both&nbsp;ligand&nbsp;residues<br>
+are&nbsp;merged&nbsp;into&nbsp;the&nbsp;same&nbsp;group.&nbsp;Any&nbsp;remaining&nbsp;residue&nbsp;not&nbsp;linked&nbsp;to<br>
+another&nbsp;becomes&nbsp;its&nbsp;own&nbsp;singleton&nbsp;group.&nbsp;Overlapping&nbsp;groups&nbsp;are&nbsp;then<br>
+iteratively&nbsp;merged&nbsp;until&nbsp;none&nbsp;overlap.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_residues&nbsp;(iterable):&nbsp;Iterable&nbsp;of&nbsp;ligand&nbsp;residue&nbsp;key<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;strings.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;links&nbsp;(list):&nbsp;List&nbsp;of&nbsp;``(res1,&nbsp;res2,&nbsp;bond_length)``&nbsp;tuples<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;describing&nbsp;covalent&nbsp;connections&nbsp;between&nbsp;residues,&nbsp;as&nbsp;returned<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;by&nbsp;:func:`parse_mmcif_file`.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;list:&nbsp;A&nbsp;list&nbsp;of&nbsp;sets,&nbsp;each&nbsp;set&nbsp;containing&nbsp;the&nbsp;residue&nbsp;keys&nbsp;that<br>
+&nbsp;&nbsp;&nbsp;&nbsp;belong&nbsp;to&nbsp;the&nbsp;same&nbsp;connected&nbsp;ligand&nbsp;component.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+ <dl><dt><a name="-parse_binding_site"><strong>parse_binding_site</strong></a>(pdbid, cfg=None)</dt><dd><span class="code">Analyse&nbsp;a&nbsp;single&nbsp;PDB&nbsp;entry&nbsp;for&nbsp;ligand&nbsp;binding-site&nbsp;quality.<br>
+&nbsp;<br>
+Fetches&nbsp;structure-level&nbsp;refinement&nbsp;stats&nbsp;and&nbsp;per-residue&nbsp;validation<br>
+data&nbsp;(from&nbsp;either&nbsp;PDB/RCSB&nbsp;or&nbsp;PDB-REDO,&nbsp;per&nbsp;``cfg.pdb_redo``),<br>
+downloads&nbsp;and&nbsp;parses&nbsp;the&nbsp;mmCIF&nbsp;model,&nbsp;then&nbsp;classifies&nbsp;each&nbsp;ligand&nbsp;and<br>
+its&nbsp;binding&nbsp;site&nbsp;by&nbsp;electron-density&nbsp;fit&nbsp;quality,&nbsp;producing<br>
+JSON-serializable&nbsp;results&nbsp;including&nbsp;bounding&nbsp;boxes&nbsp;and&nbsp;per-atom<br>
+coordinates&nbsp;for&nbsp;3D&nbsp;density&nbsp;display.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;analyse.&nbsp;Case&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;normalized&nbsp;internally.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cfg&nbsp;(<a href="#AnalysisConfig">AnalysisConfig</a>,&nbsp;optional):&nbsp;Analysis&nbsp;configuration.&nbsp;If<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``None``,&nbsp;a&nbsp;default&nbsp;:class:`<a href="#AnalysisConfig">AnalysisConfig</a>`&nbsp;is&nbsp;used.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dict:&nbsp;On&nbsp;success,&nbsp;a&nbsp;dict&nbsp;with&nbsp;keys:<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"pdbid"``&nbsp;(str):&nbsp;The&nbsp;analysed&nbsp;PDB&nbsp;identifier.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"ligands"``&nbsp;(list):&nbsp;List&nbsp;of&nbsp;per-ligand&nbsp;result&nbsp;dicts,&nbsp;each<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;containing&nbsp;ligand/binding-site&nbsp;residues,&nbsp;quality&nbsp;labels,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;scores,&nbsp;density&nbsp;boxes,&nbsp;and&nbsp;density&nbsp;atom&nbsp;coordinates.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"rejected"``&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;the&nbsp;reason<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;it&nbsp;was&nbsp;excluded&nbsp;from&nbsp;ligand&nbsp;consideration.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"struc_dict"``&nbsp;(dict):&nbsp;Structure-level&nbsp;statistics&nbsp;with<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NaN&nbsp;values&nbsp;replaced&nbsp;by&nbsp;``None``&nbsp;for&nbsp;JSON&nbsp;safety.<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;On&nbsp;failure,&nbsp;a&nbsp;dict&nbsp;of&nbsp;the&nbsp;form<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``{"pdbid":&nbsp;pdbid,&nbsp;"error":&nbsp;"reason"}``.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Fetch&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(or&nbsp;via&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;helper&nbsp;functions&nbsp;called)&nbsp;and&nbsp;surfaced&nbsp;through&nbsp;the&nbsp;returned<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"error"``&nbsp;key&nbsp;rather&nbsp;than&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-parse_mmcif_file"><strong>parse_mmcif_file</strong></a>(mmciffilepath, pdbid, inner_distance)</dt><dd><span class="code">Parse&nbsp;an&nbsp;mmCIF&nbsp;file&nbsp;into&nbsp;atom&nbsp;and&nbsp;covalent-link&nbsp;dictionaries.<br>
+&nbsp;<br>
+Parses&nbsp;an&nbsp;mmCIF&nbsp;file&nbsp;(plain&nbsp;or&nbsp;gzip)&nbsp;using&nbsp;gemmi,&nbsp;classifying&nbsp;each<br>
+atom&nbsp;as&nbsp;protein/nucleic-acid,&nbsp;blacklisted&nbsp;ligand/metal,&nbsp;or&nbsp;ligand,<br>
+and&nbsp;extracting&nbsp;covalent/disulfide/metal-coordination&nbsp;connections.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;mmciffilepath&nbsp;(str):&nbsp;Path&nbsp;to&nbsp;the&nbsp;mmCIF&nbsp;file&nbsp;to&nbsp;parse&nbsp;(may&nbsp;be<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;gzip-compressed).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure,&nbsp;used&nbsp;for&nbsp;logging.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inner_distance&nbsp;(float):&nbsp;If&nbsp;falsy&nbsp;(e.g.&nbsp;``0``),&nbsp;protein/nucleic-acid<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;atoms&nbsp;are&nbsp;not&nbsp;added&nbsp;to&nbsp;``res_atom_dict``,&nbsp;skipping&nbsp;binding-site<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;distance&nbsp;calculations&nbsp;for&nbsp;non-ligand&nbsp;residues.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;On&nbsp;success,&nbsp;a&nbsp;5-tuple<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``(natoms,&nbsp;res_atom_dict,&nbsp;ligand_res_atom_dict,&nbsp;notligands,&nbsp;links)``:<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;natoms&nbsp;(float):&nbsp;Total&nbsp;occupancy-weighted&nbsp;atom&nbsp;count.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;set&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;protein/nucleic-acid&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;blacklisted/metal&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;ligand_res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;set<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;of&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;ligand&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;notligands&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;reason&nbsp;string<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for&nbsp;residues&nbsp;excluded&nbsp;from&nbsp;ligand&nbsp;consideration&nbsp;(e.g.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;blacklisted).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;links&nbsp;(list):&nbsp;List&nbsp;of&nbsp;``(res1,&nbsp;res2,&nbsp;bond_length)``&nbsp;tuples<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;describing&nbsp;covalent/disulfide/metal-coordination<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;connections.<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;On&nbsp;failure,&nbsp;a&nbsp;1-tuple&nbsp;``(error_string,)``&nbsp;describing&nbsp;the&nbsp;parsing<br>
+&nbsp;&nbsp;&nbsp;&nbsp;error.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Parsing&nbsp;errors&nbsp;from&nbsp;gemmi&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;returned&nbsp;as&nbsp;a&nbsp;1-tuple&nbsp;error&nbsp;message&nbsp;instead&nbsp;of&nbsp;propagating.</span></dd></dl>
+ <dl><dt><a name="-residue_atom_centers"><strong>residue_atom_centers</strong></a>(residues, res_atom_dict, ligand_res_atom_dict)</dt><dd><span class="code">Build&nbsp;a&nbsp;flat&nbsp;list&nbsp;of&nbsp;per-atom&nbsp;coordinates&nbsp;for&nbsp;the&nbsp;given&nbsp;residue&nbsp;keys.<br>
+&nbsp;<br>
+Used&nbsp;for&nbsp;true&nbsp;per-atom&nbsp;density&nbsp;masking&nbsp;in&nbsp;the&nbsp;viewer:&nbsp;the&nbsp;frontend<br>
+clips&nbsp;the&nbsp;isosurface&nbsp;to&nbsp;a&nbsp;small&nbsp;sphere&nbsp;around&nbsp;*each*&nbsp;atom&nbsp;(radius<br>
+controlled&nbsp;by&nbsp;a&nbsp;UI&nbsp;slider),&nbsp;instead&nbsp;of&nbsp;one&nbsp;region-wide&nbsp;box&nbsp;or&nbsp;a&nbsp;single<br>
+per-residue&nbsp;sphere.&nbsp;Since&nbsp;the&nbsp;ligand/binding-site/residues-to-examine<br>
+atom&nbsp;lists&nbsp;are&nbsp;already&nbsp;known&nbsp;from&nbsp;the&nbsp;analysis,&nbsp;this&nbsp;lets&nbsp;the&nbsp;density<br>
+shown&nbsp;for&nbsp;each&nbsp;layer&nbsp;trace&nbsp;the&nbsp;actual&nbsp;atoms&nbsp;of&nbsp;that&nbsp;layer,&nbsp;rather&nbsp;than<br>
+everything&nbsp;inside&nbsp;a&nbsp;loose&nbsp;enclosing&nbsp;volume.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;residues&nbsp;(iterable):&nbsp;Iterable&nbsp;of&nbsp;residue&nbsp;key&nbsp;strings&nbsp;to&nbsp;collect<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;atom&nbsp;centers&nbsp;for.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;collection&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;protein/nucleic-acid&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;blacklisted/metal&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collection&nbsp;of&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;ligand<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;atoms.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;list:&nbsp;A&nbsp;list&nbsp;of&nbsp;dicts,&nbsp;one&nbsp;per&nbsp;atom,&nbsp;each&nbsp;of&nbsp;the&nbsp;form<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``{"residue":&nbsp;res,&nbsp;"center":&nbsp;[x,&nbsp;y,&nbsp;z]}``.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+ <dl><dt><a name="-residues_bbox"><strong>residues_bbox</strong></a>(residues, res_atom_dict, ligand_res_atom_dict, padding=2.1)</dt><dd><span class="code">Compute&nbsp;a&nbsp;padded&nbsp;bounding&nbsp;box&nbsp;covering&nbsp;all&nbsp;atoms&nbsp;of&nbsp;given&nbsp;residues.<br>
+&nbsp;<br>
+This&nbsp;is&nbsp;only&nbsp;used&nbsp;to&nbsp;size&nbsp;the&nbsp;*download&nbsp;window*&nbsp;sent&nbsp;to&nbsp;the&nbsp;density<br>
+server&nbsp;(which&nbsp;only&nbsp;supports&nbsp;box/cell&nbsp;queries,&nbsp;not&nbsp;per-atom&nbsp;masking)&nbsp;—<br>
+it&nbsp;is&nbsp;intentionally&nbsp;loose,&nbsp;since&nbsp;the&nbsp;whole&nbsp;point&nbsp;is&nbsp;to&nbsp;have&nbsp;enough<br>
+margin&nbsp;to&nbsp;render&nbsp;a&nbsp;good&nbsp;isosurface.&nbsp;It&nbsp;should&nbsp;NOT&nbsp;be&nbsp;used&nbsp;directly&nbsp;to<br>
+decide&nbsp;what&nbsp;density&nbsp;is&nbsp;*shown*,&nbsp;since&nbsp;a&nbsp;box&nbsp;covering&nbsp;e.g.&nbsp;a&nbsp;binding<br>
+site&nbsp;will&nbsp;inevitably&nbsp;also&nbsp;cover&nbsp;the&nbsp;ligand&nbsp;and&nbsp;unrelated&nbsp;solvent;&nbsp;see<br>
+`residue_atom_centers`&nbsp;for&nbsp;the&nbsp;per-atom&nbsp;masks&nbsp;used&nbsp;for&nbsp;that.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;residues&nbsp;(iterable):&nbsp;Iterable&nbsp;of&nbsp;residue&nbsp;key&nbsp;strings&nbsp;to&nbsp;include&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;bounding&nbsp;box.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;collection&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;protein/nucleic-acid&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;blacklisted/metal&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collection&nbsp;of&nbsp;:class:`core.pdb_atom.PdbAtom`&nbsp;for&nbsp;ligand<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;atoms.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;padding&nbsp;(float,&nbsp;optional):&nbsp;Amount,&nbsp;in&nbsp;Angstrom,&nbsp;to&nbsp;expand&nbsp;the&nbsp;box<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on&nbsp;every&nbsp;side.&nbsp;Defaults&nbsp;to&nbsp;:data:`DEFAULT_BOX_PADDING`.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;None:&nbsp;A&nbsp;dict&nbsp;of&nbsp;the&nbsp;form<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``{"min":&nbsp;[x,&nbsp;y,&nbsp;z],&nbsp;"max":&nbsp;[x,&nbsp;y,&nbsp;z]}``&nbsp;describing&nbsp;the&nbsp;padded<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bounding&nbsp;box,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;no&nbsp;atoms&nbsp;are&nbsp;found&nbsp;for&nbsp;the&nbsp;given<br>
+&nbsp;&nbsp;&nbsp;&nbsp;residues.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+ <dl><dt><a name="-validate"><strong>validate</strong></a>(residues, good_rsr, bad_rsr, dubious_rsr)</dt><dd><span class="code">Determine&nbsp;an&nbsp;overall&nbsp;quality&nbsp;label&nbsp;for&nbsp;a&nbsp;set&nbsp;of&nbsp;residues.<br>
+&nbsp;<br>
+A&nbsp;group&nbsp;of&nbsp;residues&nbsp;is&nbsp;labeled&nbsp;"Good"&nbsp;only&nbsp;if&nbsp;every&nbsp;residue&nbsp;is&nbsp;in<br>
+``good_rsr``;&nbsp;otherwise&nbsp;it&nbsp;is&nbsp;"Bad"&nbsp;if&nbsp;any&nbsp;residue&nbsp;is&nbsp;in&nbsp;``bad_rsr``,<br>
+"Dubious"&nbsp;if&nbsp;any&nbsp;residue&nbsp;is&nbsp;in&nbsp;``dubious_rsr``,&nbsp;and&nbsp;"Dubious"&nbsp;as&nbsp;a<br>
+final&nbsp;fallback.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;residues&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;to&nbsp;evaluate.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;good_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"good".<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bad_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"bad".<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dubious_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"dubious".<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;str:&nbsp;One&nbsp;of&nbsp;``"Good"``,&nbsp;``"Bad"``,&nbsp;or&nbsp;``"Dubious"``.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>DEFAULT_BOX_PADDING</strong> = 2.1<br>
+<strong>logger</strong> = &lt;Logger rsr_core (WARNING)&gt;</td></tr></table>
+</body></html>

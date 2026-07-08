@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module eds_utils</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">eds_utils</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Ceds_utils.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\eds_utils.py</a></td></tr></table>
+    <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;Copyright&nbsp;2010-2024&nbsp;Adrià&nbsp;Cereto&nbsp;Massagué<br>
+#&nbsp;&nbsp;&nbsp;Migrated&nbsp;to&nbsp;web&nbsp;version.<br>
+#&nbsp;&nbsp;&nbsp;Changes:&nbsp;replaced&nbsp;urllib&nbsp;with&nbsp;requests;&nbsp;proper&nbsp;SSL/timeout;&nbsp;no&nbsp;Cython&nbsp;deps.<br>
+#&nbsp;&nbsp;&nbsp;Added:&nbsp;<a href="#-get_edm">get_edm</a>()&nbsp;to&nbsp;fetch&nbsp;the&nbsp;full&nbsp;electron&nbsp;density&nbsp;map&nbsp;(CCP4&nbsp;format),<br>
+#&nbsp;&nbsp;&nbsp;which&nbsp;EDS_parser.py&nbsp;used&nbsp;to&nbsp;fetch&nbsp;from&nbsp;the&nbsp;now-defunct<br>
+#&nbsp;&nbsp;&nbsp;edmaps.rcsb.org/maps/{}_2fofc.dsn6&nbsp;endpoint.<br>
+#</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="xml.etree.ElementTree.html">xml.etree.ElementTree</a><br>
+<a href="logging.html">logging</a><br>
+</td><td class="multicolumn"><a href="os.html">os</a><br>
+<a href="core.pdb_utils.html">core.pdb_utils</a><br>
+</td><td class="multicolumn"><a href="requests.html">requests</a><br>
+</td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-edm_box_url"><strong>edm_box_url</strong></a>(pdbid, box, detail=3)</dt><dd><span class="code">Build&nbsp;the&nbsp;EBI&nbsp;density-server&nbsp;"box"&nbsp;query&nbsp;URL&nbsp;for&nbsp;a&nbsp;given&nbsp;bounding&nbsp;box.<br>
+&nbsp;<br>
+Constructs&nbsp;a&nbsp;URL&nbsp;against&nbsp;the&nbsp;EBI&nbsp;density&nbsp;VolumeServer's&nbsp;"box"&nbsp;endpoint,<br>
+which&nbsp;streams&nbsp;back&nbsp;only&nbsp;the&nbsp;density&nbsp;data&nbsp;within&nbsp;the&nbsp;specified<br>
+bounding&nbsp;box&nbsp;rather&nbsp;than&nbsp;the&nbsp;full&nbsp;electron&nbsp;density&nbsp;map.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure.&nbsp;It&nbsp;is&nbsp;lower-cased<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;before&nbsp;being&nbsp;inserted&nbsp;into&nbsp;the&nbsp;URL.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;box&nbsp;(dict):&nbsp;Bounding&nbsp;box&nbsp;in&nbsp;Angstrom,&nbsp;orthogonal&nbsp;coordinates,&nbsp;with<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;shape&nbsp;``{"min":&nbsp;[x,&nbsp;y,&nbsp;z],&nbsp;"max":&nbsp;[x,&nbsp;y,&nbsp;z]}``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;detail&nbsp;(int,&nbsp;optional):&nbsp;Level&nbsp;of&nbsp;detail&nbsp;for&nbsp;the&nbsp;returned&nbsp;density,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ranging&nbsp;from&nbsp;``0``&nbsp;(coarsest)&nbsp;to&nbsp;``6``&nbsp;(finest).&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``3``,&nbsp;a&nbsp;good&nbsp;default&nbsp;for&nbsp;ligand-sized&nbsp;regions.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;str:&nbsp;The&nbsp;fully&nbsp;formatted&nbsp;density-server&nbsp;"box"&nbsp;query&nbsp;URL.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;KeyError:&nbsp;If&nbsp;``box``&nbsp;does&nbsp;not&nbsp;contain&nbsp;both&nbsp;``"min"``&nbsp;and&nbsp;``"max"``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;keys.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ValueError:&nbsp;If&nbsp;``box["min"]``&nbsp;or&nbsp;``box["max"]``&nbsp;cannot&nbsp;be&nbsp;unpacked<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;into&nbsp;exactly&nbsp;three&nbsp;coordinate&nbsp;values.</span></dd></dl>
+ <dl><dt><a name="-get_EDS"><strong>get_EDS</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
+&nbsp;<br>
+Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDBe&nbsp;validation&nbsp;XML&nbsp;file&nbsp;for&nbsp;the<br>
+given&nbsp;PDB&nbsp;entry,&nbsp;then&nbsp;parses&nbsp;per-residue&nbsp;electron-density&nbsp;validation<br>
+metrics&nbsp;(RSR,&nbsp;RSCC,&nbsp;OWAB,&nbsp;RSRZ,&nbsp;occupancy)&nbsp;from&nbsp;it.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;A&nbsp;2-tuple&nbsp;``(pdbdict,&nbsp;edd_dict)``:<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;pdbdict&nbsp;(dict):&nbsp;Mapping&nbsp;``{pdbid:&nbsp;status}``&nbsp;where&nbsp;``status``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;is&nbsp;``True``&nbsp;on&nbsp;success,&nbsp;``False``&nbsp;if&nbsp;no&nbsp;validation&nbsp;data&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;available&nbsp;(e.g.&nbsp;HTTP&nbsp;404&nbsp;or&nbsp;missing&nbsp;file),&nbsp;or&nbsp;a&nbsp;string<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;containing&nbsp;the&nbsp;error&nbsp;message&nbsp;if&nbsp;an&nbsp;exception&nbsp;occurred.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;edd_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;(as&nbsp;produced&nbsp;by<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.pdb_atom.format_reskey`)&nbsp;to&nbsp;a&nbsp;dict&nbsp;with&nbsp;keys<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"RSR"``,&nbsp;``"RSCC"``,&nbsp;``"OWAB"``,&nbsp;``"RSRZ"``,&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"occupancy"``&nbsp;(all&nbsp;floats).&nbsp;Empty&nbsp;if&nbsp;no&nbsp;data&nbsp;could&nbsp;be<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;parsed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request,&nbsp;I/O,&nbsp;and&nbsp;XML-parsing&nbsp;errors&nbsp;are&nbsp;caught<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;internally&nbsp;and&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger&nbsp;and&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;returned&nbsp;``pdbdict``&nbsp;status&nbsp;string;&nbsp;the&nbsp;function&nbsp;does&nbsp;not<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;propagate&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-get_edm"><strong>get_edm</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Download&nbsp;and&nbsp;cache&nbsp;the&nbsp;full&nbsp;2Fo-Fc&nbsp;electron&nbsp;density&nbsp;map&nbsp;for&nbsp;a&nbsp;PDB&nbsp;entry.<br>
+&nbsp;<br>
+Fetches&nbsp;the&nbsp;CCP4-format&nbsp;electron&nbsp;density&nbsp;map&nbsp;from&nbsp;the&nbsp;EBI&nbsp;entry-files<br>
+endpoint,&nbsp;storing&nbsp;it&nbsp;under&nbsp;the&nbsp;shared&nbsp;PDB&nbsp;cache&nbsp;directory.&nbsp;If&nbsp;a&nbsp;valid<br>
+cached&nbsp;copy&nbsp;already&nbsp;exists&nbsp;and&nbsp;``use_cache``&nbsp;is&nbsp;``True``,&nbsp;the&nbsp;download<br>
+is&nbsp;skipped.<br>
+&nbsp;<br>
+Note:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;`sigma`&nbsp;is&nbsp;a&nbsp;fixed&nbsp;placeholder&nbsp;(``1.0``)&nbsp;here:&nbsp;unlike&nbsp;the&nbsp;old<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``.dsn6``&nbsp;format,&nbsp;CCP4&nbsp;maps&nbsp;carry&nbsp;their&nbsp;own&nbsp;header&nbsp;statistics<br>
+&nbsp;&nbsp;&nbsp;&nbsp;(mean/rms),&nbsp;so&nbsp;Mol*&nbsp;/&nbsp;any&nbsp;CCP4-aware&nbsp;client&nbsp;computes&nbsp;contour<br>
+&nbsp;&nbsp;&nbsp;&nbsp;levels&nbsp;directly&nbsp;from&nbsp;the&nbsp;file&nbsp;instead&nbsp;of&nbsp;needing&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;separately-tracked&nbsp;sigma&nbsp;value.&nbsp;It&nbsp;is&nbsp;kept&nbsp;in&nbsp;the&nbsp;return<br>
+&nbsp;&nbsp;&nbsp;&nbsp;signature&nbsp;for&nbsp;backwards&nbsp;compatibility&nbsp;with&nbsp;callers&nbsp;of&nbsp;the&nbsp;old<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``EDS_parser.get_EDM()``.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;to&nbsp;reuse&nbsp;an&nbsp;existing&nbsp;cached<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;map&nbsp;file&nbsp;instead&nbsp;of&nbsp;re-downloading&nbsp;it.&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;A&nbsp;2-tuple&nbsp;``(filepath,&nbsp;sigma)``:<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;filepath&nbsp;(str&nbsp;or&nbsp;None):&nbsp;Path&nbsp;to&nbsp;the&nbsp;downloaded&nbsp;(or&nbsp;cached)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CCP4&nbsp;map&nbsp;file,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;the&nbsp;download&nbsp;failed&nbsp;or&nbsp;no&nbsp;map<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;is&nbsp;available.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;sigma&nbsp;(float&nbsp;or&nbsp;None):&nbsp;Fixed&nbsp;placeholder&nbsp;value&nbsp;of&nbsp;``1.0``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;on&nbsp;success,&nbsp;or&nbsp;``None``&nbsp;on&nbsp;failure.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request&nbsp;and&nbsp;I/O&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``(None,&nbsp;None)``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-get_validation_data"><strong>get_validation_data</strong></a> = get_EDS(pdbid)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
+&nbsp;<br>
+Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDBe&nbsp;validation&nbsp;XML&nbsp;file&nbsp;for&nbsp;the<br>
+given&nbsp;PDB&nbsp;entry,&nbsp;then&nbsp;parses&nbsp;per-residue&nbsp;electron-density&nbsp;validation<br>
+metrics&nbsp;(RSR,&nbsp;RSCC,&nbsp;OWAB,&nbsp;RSRZ,&nbsp;occupancy)&nbsp;from&nbsp;it.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;A&nbsp;2-tuple&nbsp;``(pdbdict,&nbsp;edd_dict)``:<br>
+&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;pdbdict&nbsp;(dict):&nbsp;Mapping&nbsp;``{pdbid:&nbsp;status}``&nbsp;where&nbsp;``status``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;is&nbsp;``True``&nbsp;on&nbsp;success,&nbsp;``False``&nbsp;if&nbsp;no&nbsp;validation&nbsp;data&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;available&nbsp;(e.g.&nbsp;HTTP&nbsp;404&nbsp;or&nbsp;missing&nbsp;file),&nbsp;or&nbsp;a&nbsp;string<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;containing&nbsp;the&nbsp;error&nbsp;message&nbsp;if&nbsp;an&nbsp;exception&nbsp;occurred.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;edd_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;(as&nbsp;produced&nbsp;by<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.pdb_atom.format_reskey`)&nbsp;to&nbsp;a&nbsp;dict&nbsp;with&nbsp;keys<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"RSR"``,&nbsp;``"RSCC"``,&nbsp;``"OWAB"``,&nbsp;``"RSRZ"``,&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"occupancy"``&nbsp;(all&nbsp;floats).&nbsp;Empty&nbsp;if&nbsp;no&nbsp;data&nbsp;could&nbsp;be<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;parsed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request,&nbsp;I/O,&nbsp;and&nbsp;XML-parsing&nbsp;errors&nbsp;are&nbsp;caught<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;internally&nbsp;and&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger&nbsp;and&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;returned&nbsp;``pdbdict``&nbsp;status&nbsp;string;&nbsp;the&nbsp;function&nbsp;does&nbsp;not<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;propagate&nbsp;exceptions.</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>EDM_BOX_URL</strong> = 'https://www.ebi.ac.uk/pdbe/densities/x-ray/{pdbi...miny},{minz}/{maxx},{maxy},{maxz}?detail={detail}'<br>
+<strong>EDM_URL</strong> = 'https://www.ebi.ac.uk/pdbe/entry-files/{}.ccp4'<br>
+<strong>EDSTATS_URL</strong> = 'https://www.ebi.ac.uk/pdbe/entry-files/download/{}_validation.xml'<br>
+<strong>logger</strong> = &lt;Logger eds_utils (WARNING)&gt;</td></tr></table>
+</body></html>
