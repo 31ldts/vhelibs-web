@@ -137,7 +137,29 @@
       <div id="resultsEmpty" class="empty-state">
         <p>Run an analysis to see results here.</p>
       </div>
-      <div id="resultsSummary" class="results-summary hidden"></div>
+      <div id="resultsSummary" class="results-summary hidden">
+        <div class="results-filters">
+          <div class="filter-rows">
+            <div class="filter-row">
+              <span class="filter-group-label">Ligand</span>
+              <button type="button" class="filter-toggle badge badge-good"    data-axis="ligand" data-value="Good">Good <span class="filter-count">0</span></button>
+              <button type="button" class="filter-toggle badge badge-dubious" data-axis="ligand" data-value="Dubious">Dubious <span class="filter-count">0</span></button>
+              <button type="button" class="filter-toggle badge badge-bad"     data-axis="ligand" data-value="Bad">Bad <span class="filter-count">0</span></button>
+            </div>
+            <div class="filter-row">
+              <span class="filter-group-label">Binding site</span>
+              <button type="button" class="filter-toggle badge badge-good"    data-axis="bs" data-value="Good">Good <span class="filter-count">0</span></button>
+              <button type="button" class="filter-toggle badge badge-dubious" data-axis="bs" data-value="Dubious">Dubious <span class="filter-count">0</span></button>
+              <button type="button" class="filter-toggle badge badge-bad"     data-axis="bs" data-value="Bad">Bad <span class="filter-count">0</span></button>
+            </div>
+          </div>
+          <div class="filter-side-buttons">
+            <button type="button" class="filter-toggle badge badge-error" data-axis="errors" data-value="errors">⚠ Not found <span class="filter-count">0</span></button>
+            <button id="filterResetBtn" type="button" class="btn btn-secondary">Show all</button>
+          </div>
+        </div>
+        <p id="resultsFilterCount" class="th-hint mt-8"></p>
+      </div>
       <div id="resultsContainer" class="results-container hidden"></div>
     </section>
 

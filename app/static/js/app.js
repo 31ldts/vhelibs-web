@@ -9,9 +9,27 @@
 const tabLinks = document.querySelectorAll(".nav-link[data-tab]");
 const tabPanels = document.querySelectorAll(".tab-panel");
 
+// Switching tabs hides the previously-active panel (display:none), which
+// shrinks the document and makes the browser clamp/lose the window scroll
+// position. To make each tab "remember" where the user was scrolled to
+// (e.g. scrolled down in Results, hopping to the 3D Viewer and back), we
+// save window.scrollY for the outgoing tab and restore it for the
+// incoming one once the new panel's layout has settled.
+let activeTabName = null;
+const tabScrollPositions = Object.create(null);
+
 function showTab(name) {
+  if (activeTabName && activeTabName !== name) {
+    tabScrollPositions[activeTabName] = window.scrollY;
+  }
+
   tabPanels.forEach(p => p.classList.toggle("active", p.id === name));
   tabLinks.forEach(l => l.classList.toggle("active", l.dataset.tab === name));
+
+  const restoreY = tabScrollPositions[name] || 0;
+  requestAnimationFrame(() => window.scrollTo(0, restoreY));
+
+  activeTabName = name;
 
   // Mol*'s canvas can end up with a stale/zero size if it was created (or
   // last resized) while this tab was hidden (display:none). Force a re-pin
@@ -179,11 +197,19 @@ const resultsEmpty     = document.getElementById("resultsEmpty");
 const resultsSummary   = document.getElementById("resultsSummary");
 const resultsContainer = document.getElementById("resultsContainer");
 
+// Quality filter toggle buttons (Ligand: Good/Dubious/Bad, Binding site:
+// Good/Dubious/Bad, plus a separate toggle for structures that errored out
+// entirely / weren't found). Markup is static (see index.html); every
+// button starts "active" (full color) and toggles to a dimmed "inactive"
+// state on click.
+const filterToggles      = document.querySelectorAll(".filter-toggle");
+const filterResetBtn     = document.getElementById("filterResetBtn");
+const resultsFilterCount = document.getElementById("resultsFilterCount");
+
 function clearResults() {
   resultsEmpty.classList.remove("hidden");
   resultsSummary.classList.add("hidden");
   resultsContainer.classList.add("hidden");
-  resultsSummary.innerHTML = "";
   resultsContainer.innerHTML = "";
 }
 
@@ -201,21 +227,11 @@ function renderResults(results) {
   }
   resultsEmpty.classList.add("hidden");
 
-  // Tally summary
-  let counts = { good: 0, dubious: 0, bad: 0, error: 0 };
-  results.forEach(r => {
-    if (r.error) { counts.error++; return; }
-    (r.ligands || []).forEach(l => {
-      counts[qualityClass(l.ligand_quality)]++;
-    });
-  });
+  // Fresh set of results → every filter toggle starts active again.
+  filterToggles.forEach(btn => btn.classList.remove("inactive"));
 
-  resultsSummary.innerHTML = `
-    <span class="summary-pill pill-good">✓ Good ${counts.good}</span>
-    <span class="summary-pill pill-dubious">~ Dubious ${counts.dubious}</span>
-    <span class="summary-pill pill-bad">✕ Bad ${counts.bad}</span>
-    ${counts.error ? `<span class="summary-pill pill-error">⚠ Errors ${counts.error}</span>` : ""}
-  `;
+  updateFilterCounts(results);
+
   resultsSummary.classList.remove("hidden");
 
   resultsContainer.innerHTML = "";
@@ -223,7 +239,99 @@ function renderResults(results) {
     resultsContainer.appendChild(buildResultCard(r));
   });
   resultsContainer.classList.remove("hidden");
+
+  applyResultsFilter();
 }
+
+// Populates the "(N)" count next to each filter badge with how many
+// ligands/binding sites/errored structures actually have that quality —
+// always reflects the full result set, independent of which toggles are
+// currently active.
+function updateFilterCounts(results) {
+  const tally = {
+    ligand: { Good: 0, Dubious: 0, Bad: 0 },
+    bs:     { Good: 0, Dubious: 0, Bad: 0 },
+    errors: 0,
+  };
+  results.forEach(r => {
+    if (r.error) { tally.errors++; return; }
+    (r.ligands || []).forEach(l => {
+      if (tally.ligand[l.ligand_quality] != null) tally.ligand[l.ligand_quality]++;
+      if (tally.bs[l.binding_site_quality] != null) tally.bs[l.binding_site_quality]++;
+    });
+  });
+
+  filterToggles.forEach(btn => {
+    const span = btn.querySelector(".filter-count");
+    if (!span) return;
+    const axis = btn.dataset.axis;
+    const n = axis === "errors" ? tally.errors : ((tally[axis] || {})[btn.dataset.value] || 0);
+    span.textContent = `(${n})`;
+  });
+}
+
+function toggleIsActive(btn) {
+  return !btn.classList.contains("inactive");
+}
+
+// The set of quality values currently switched "on" for one axis (ligand
+// or bs) — a ligand/binding-site entry is shown only if its own quality is
+// in this set.
+function activeValuesFor(axis) {
+  const values = new Set();
+  filterToggles.forEach(btn => {
+    if (btn.dataset.axis === axis && toggleIsActive(btn)) values.add(btn.dataset.value);
+  });
+  return values;
+}
+
+// Shows only the ligand entries (and their parent structure card) whose
+// ligand AND binding-site quality both have an active toggle, and shows/
+// hides error cards ("Not found" structures) based on their own toggle.
+function applyResultsFilter() {
+  const ligandActive = activeValuesFor("ligand");
+  const bsActive      = activeValuesFor("bs");
+  const errorsBtn     = document.querySelector('.filter-toggle[data-axis="errors"]');
+  const showErrors    = errorsBtn ? toggleIsActive(errorsBtn) : true;
+
+  let visibleLigands = 0;
+  let visibleCards = 0;
+
+  resultsContainer.querySelectorAll(".result-card").forEach(card => {
+    let cardHasMatch = false;
+    card.querySelectorAll(".ligand-entry").forEach(entry => {
+      const matches =
+        ligandActive.has(entry.dataset.ligandQuality) &&
+        bsActive.has(entry.dataset.bsQuality);
+      entry.classList.toggle("hidden", !matches);
+      if (matches) { cardHasMatch = true; visibleLigands++; }
+    });
+    card.classList.toggle("hidden", !cardHasMatch);
+    if (cardHasMatch) visibleCards++;
+  });
+
+  let visibleErrors = 0;
+  resultsContainer.querySelectorAll(".error-card").forEach(card => {
+    card.classList.toggle("hidden", !showErrors);
+    if (showErrors) visibleErrors++;
+  });
+
+  resultsFilterCount.textContent =
+    `Showing ${visibleLigands} ligand(s) in ${visibleCards} structure(s)` +
+    (visibleErrors ? `, plus ${visibleErrors} not-found structure(s).` : ".");
+}
+
+filterToggles.forEach(btn => {
+  btn.addEventListener("click", () => {
+    btn.classList.toggle("inactive");
+    applyResultsFilter();
+  });
+});
+filterResetBtn.addEventListener("click", () => {
+  filterToggles.forEach(btn => btn.classList.remove("inactive"));
+  applyResultsFilter();
+});
+
 
 function buildResultCard(r) {
   if (r.error) {
@@ -239,14 +347,7 @@ function buildResultCard(r) {
   const card = document.createElement("div");
   card.className = "result-card";
 
-  // Overall quality: worst ligand or "No ligands"
   const ligands = r.ligands || [];
-  let overallQ = ligands.length ? "Good" : null;
-  ligands.forEach(l => {
-    if (l.ligand_quality === "Bad") overallQ = "Bad";
-    else if (l.ligand_quality === "Dubious" && overallQ !== "Bad") overallQ = "Dubious";
-  });
-  const qc = qualityClass(overallQ);
 
   const header = document.createElement("div");
   header.className = "result-card-header";
@@ -255,7 +356,6 @@ function buildResultCard(r) {
     ${r.uniprot ? `<span class="badge" style="margin-left:6px">UniProt: ${esc(r.uniprot)}</span>` : ""}
     <span class="result-badges">
       ${ligands.length} ligand(s)
-      ${overallQ ? `<span class="badge badge-${qc}">${overallQ}</span>` : ""}
     </span>
   `;
   card.appendChild(header);
@@ -282,6 +382,10 @@ function buildResultCard(r) {
     const bsQc = qualityClass(l.binding_site_quality);
     const entry = document.createElement("div");
     entry.className = "ligand-entry";
+    // Used by applyResultsFilter() to show/hide this entry based on the
+    // Ligand-quality / Binding-site-quality filter selectors.
+    entry.dataset.ligandQuality = l.ligand_quality || "";
+    entry.dataset.bsQuality = l.binding_site_quality || "";
     entry.innerHTML = `
       <div class="ligand-entry-header">
         <div>

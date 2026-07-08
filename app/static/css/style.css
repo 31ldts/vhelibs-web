@@ -160,7 +160,44 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 .empty-state { text-align: center; padding: 60px 0; color: var(--clr-muted); }
 
 .results-summary {
-  display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 20px;
+}
+.results-filters {
+  display: flex; gap: 16px; align-items: stretch; justify-content: center;
+}
+.filter-rows {
+  display: flex; flex-direction: column; gap: 10px; justify-content: center;
+}
+.filter-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.filter-group-label {
+  min-width: 92px;
+  font-size: .75rem; color: var(--clr-muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px; text-align: right;
+}
+.filter-side-buttons {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.filter-side-buttons .filter-toggle,
+.filter-side-buttons .btn {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.filter-toggle {
+  cursor: pointer;
+  border: 1px solid transparent;
+  font: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: opacity .15s, filter .15s, transform .1s;
+}
+.filter-toggle:hover { transform: translateY(-1px); }
+.filter-toggle.inactive {
+  opacity: .3;
+  filter: grayscale(.6);
+}
+.filter-count {
+  font-size: .7rem; font-weight: 700; opacity: .85;
 }
 .summary-pill {
   padding: 6px 16px; border-radius: 999px; font-size: .8125rem; font-weight: 600;
