@@ -155,7 +155,7 @@ Renders the model with [Mol\*](https://molstar.org). You can:
   atom of that region, so you only ever see density belonging to the residues you're inspecting.
 - Adjust the **contour level (isovalue, in σ)** and the **per-atom mask radius** live from the
   sidebar sliders.
-- Click through a ligand's **residues to examine** in the sidebar list to focus the camera on each
+- Click through a ligand's **components to examine** in the sidebar list to focus the camera on each
   one in turn.
 
 ## How an analysis works
