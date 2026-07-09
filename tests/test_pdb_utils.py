@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Unit tests for core.pdb_utils.
+Unit tests for core.pdb_utils (post-refactor: download/cache logic now
+delegates to core.http_cache).
 
-All network access (via `requests`) and the module-level CACHEDIR are
-mocked/redirected so tests never touch the real network or the real
-filesystem outside of pytest's tmp_path.
+Network access happens inside core.http_cache (requests.get for
+downloads/JSON fetches) except for the direct UniProt search POST, which
+pdb_utils still issues itself. Both are mocked; CACHEDIR is redirected to
+tmp_path.
 """
-import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +19,6 @@ import core.pdb_utils as pdb_utils
 
 @pytest.fixture(autouse=True)
 def isolated_cache_dir(tmp_path, monkeypatch):
-    """Redirect the module-level CACHEDIR to a throwaway tmp_path per test."""
     monkeypatch.setattr(pdb_utils, "CACHEDIR", str(tmp_path))
     yield tmp_path
 
@@ -42,53 +42,37 @@ class TestSetCacheDir:
 
 
 # ---------------------------------------------------------------------------
-# _download (private, but exercised indirectly and directly since it's the
-# shared retry/download primitive used by every public function below)
+# _get_nested
 # ---------------------------------------------------------------------------
 
-class TestDownloadHelper:
-    @patch("core.pdb_utils.requests.get")
-    def test_download_success_writes_file(self, mock_get, tmp_path):
-        mock_resp = MagicMock()
-        mock_resp.content = b"filecontent"
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+class TestGetNested:
+    def test_full_path_resolves(self):
+        d = {"a": {"b": {"c": 42}}}
+        assert pdb_utils._get_nested(d, "a", "b", "c") == 42
 
-        dest = tmp_path / "out.bin"
-        result = pdb_utils._download("http://example.com/f", str(dest))
+    def test_missing_intermediate_key_returns_default(self):
+        d = {"a": {}}
+        assert pdb_utils._get_nested(d, "a", "b", "c") is None
 
-        assert result is True
-        assert dest.read_bytes() == b"filecontent"
-        mock_get.assert_called_once_with("http://example.com/f", timeout=30, verify=True)
+    def test_custom_default(self):
+        d = {}
+        assert pdb_utils._get_nested(d, "a", default="fallback") == "fallback"
 
-    @patch("core.pdb_utils.requests.get")
-    def test_download_retries_then_fails(self, mock_get, tmp_path):
-        mock_get.side_effect = requests.exceptions.ConnectionError("boom")
-        dest = tmp_path / "out.bin"
+    def test_non_dict_intermediate_value_returns_default(self):
+        d = {"a": "not-a-dict"}
+        assert pdb_utils._get_nested(d, "a", "b") is None
 
-        result = pdb_utils._download("http://example.com/f", str(dest), retries=3)
+    def test_none_value_short_circuits(self):
+        d = {"a": None}
+        assert pdb_utils._get_nested(d, "a", "b", default="x") == "x"
 
-        assert result is False
-        assert mock_get.call_count == 3
-        assert not dest.exists()
-
-    @patch("core.pdb_utils.requests.get")
-    def test_download_succeeds_after_transient_failure(self, mock_get, tmp_path):
-        ok_resp = MagicMock()
-        ok_resp.content = b"data"
-        ok_resp.raise_for_status = MagicMock()
-        mock_get.side_effect = [requests.exceptions.Timeout("slow"), ok_resp]
-
-        dest = tmp_path / "out.bin"
-        result = pdb_utils._download("http://example.com/f", str(dest), retries=3)
-
-        assert result is True
-        assert mock_get.call_count == 2
-        assert dest.read_bytes() == b"data"
+    def test_no_keys_returns_input_dict(self):
+        d = {"a": 1}
+        assert pdb_utils._get_nested(d) == d
 
 
 # ---------------------------------------------------------------------------
-# get_custom_report
+# _extract_report_fields
 # ---------------------------------------------------------------------------
 
 RCSB_ENTRY_JSON = {
@@ -106,8 +90,43 @@ RCSB_ENTRY_JSON = {
 }
 
 
+class TestExtractReportFields:
+    def test_extracts_all_fields(self):
+        row = pdb_utils._extract_report_fields(RCSB_ENTRY_JSON)
+        assert row["rFree"] == 0.218
+        assert row["rWork"] == 0.175
+        assert row["refinementResolution"] == 1.8
+        assert row["nreflections"] == 1234
+        assert row["experimentalTechnique"] == "X-RAY DIFFRACTION"
+        assert row["unitCellAngleAlpha"] == 90.0
+        assert row["lengthOfUnitCellLatticeA"] == 50.0
+
+    def test_falls_back_to_ls_d_res_low_when_high_missing(self):
+        data = {
+            "refine": [{"ls_d_res_low": 2.5}],
+        }
+        row = pdb_utils._extract_report_fields(data)
+        assert row["refinementResolution"] == 2.5
+
+    def test_missing_refine_block_yields_placeholder_rfree(self):
+        data = {"rcsb_entry_info": {"experimental_method": "SOLUTION NMR"}}
+        row = pdb_utils._extract_report_fields(data)
+        assert row["rFree"] == 9999
+        assert row["rWork"] == 9999
+        assert row["refinementResolution"] == 0.0
+        assert row["experimentalTechnique"] == "SOLUTION NMR"
+
+    def test_malformed_refine_raises_for_caller_to_catch(self):
+        with pytest.raises(Exception):
+            pdb_utils._extract_report_fields({"refine": "not-a-list"})
+
+
+# ---------------------------------------------------------------------------
+# get_custom_report
+# ---------------------------------------------------------------------------
+
 class TestGetCustomReport:
-    @patch("core.pdb_utils.requests.get")
+    @patch("core.http_cache.requests.get")
     def test_fetches_and_parses_report(self, mock_get, tmp_path):
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
@@ -119,14 +138,9 @@ class TestGetCustomReport:
         assert "1CBS" in result
         row = result["1CBS"]
         assert row["rFree"] == 0.218
-        assert row["rWork"] == 0.175
         assert row["refinementResolution"] == 1.8
-        assert row["nreflections"] == 1234
-        assert row["experimentalTechnique"] == "X-RAY DIFFRACTION"
-        assert row["unitCellAngleAlpha"] == 90.0
-        assert row["lengthOfUnitCellLatticeA"] == 50.0
 
-    @patch("core.pdb_utils.requests.get")
+    @patch("core.http_cache.requests.get")
     def test_uses_disk_cache_on_second_call(self, mock_get, tmp_path):
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
@@ -136,54 +150,25 @@ class TestGetCustomReport:
         pdb_utils.get_custom_report("1cbs")
         pdb_utils.get_custom_report("1cbs")
 
-        assert mock_get.call_count == 1  # second call served from cache file
+        assert mock_get.call_count == 1
 
-    @patch("core.pdb_utils.requests.get")
+    @patch("core.http_cache.requests.get")
     def test_network_failure_returns_empty_dict(self, mock_get):
         mock_get.side_effect = requests.exceptions.ConnectionError("down")
         result = pdb_utils.get_custom_report("1cbs")
         assert result == {}
 
-    @patch("core.pdb_utils.requests.get")
-    def test_falls_back_to_ls_d_res_low_when_high_missing(self, mock_get):
-        data = json.loads(json.dumps(RCSB_ENTRY_JSON))  # deep copy
-        del data["refine"][0]["ls_d_res_high"]
-        data["refine"][0]["ls_d_res_low"] = 2.5
-        resp = MagicMock()
-        resp.raise_for_status = MagicMock()
-        resp.json.return_value = data
-        mock_get.return_value = resp
-
-        result = pdb_utils.get_custom_report("1cbs")
-        assert result["1CBS"]["refinementResolution"] == 2.5
-
-    @patch("core.pdb_utils.requests.get")
-    def test_missing_refine_block_yields_placeholder_rfree(self, mock_get):
-        data = {"rcsb_entry_info": {"experimental_method": "SOLUTION NMR"}}
-        resp = MagicMock()
-        resp.raise_for_status = MagicMock()
-        resp.json.return_value = data
-        mock_get.return_value = resp
-
-        result = pdb_utils.get_custom_report("2abc")
-        row = result["2ABC"]
-        assert row["rFree"] == 9999
-        assert row["rWork"] == 9999
-        assert row["refinementResolution"] == 0.0
-
-    @patch("core.pdb_utils.requests.get")
+    @patch("core.http_cache.requests.get")
     def test_malformed_json_is_handled_gracefully(self, mock_get):
         resp = MagicMock()
         resp.raise_for_status = MagicMock()
         resp.json.return_value = {"refine": "not-a-list-of-dicts"}
         mock_get.return_value = resp
 
-        # refine[0] on a string indexes the first character -> not a dict ->
-        # .get(...) calls inside the try block raise -> caught -> {}
         result = pdb_utils.get_custom_report("3xyz")
         assert result == {}
 
-    @patch("core.pdb_utils.requests.get")
+    @patch("core.http_cache.requests.get")
     def test_corrupt_cache_file_triggers_refetch(self, mock_get, tmp_path):
         pdbid = "1cbs"
         cache_dir = os.path.join(str(tmp_path), pdbid)
@@ -200,6 +185,30 @@ class TestGetCustomReport:
         assert "1CBS" in result
         mock_get.assert_called_once()
 
+    @patch("core.http_cache.requests.get")
+    def test_request_uses_lowercased_pdbid_in_url(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = RCSB_ENTRY_JSON
+        mock_get.return_value = resp
+
+        pdb_utils.get_custom_report("1CBS")
+        called_url = mock_get.call_args[0][0]
+        assert called_url == "https://data.rcsb.org/rest/v1/core/entry/1cbs"
+
+
+# ---------------------------------------------------------------------------
+# _build_uniprot_query
+# ---------------------------------------------------------------------------
+
+class TestBuildUniprotQuery:
+    def test_builds_expected_shape(self):
+        query = pdb_utils._build_uniprot_query("P00734", 50)
+        assert query["query"]["parameters"]["value"] == "P00734"
+        assert query["query"]["parameters"]["operator"] == "exact_match"
+        assert query["return_type"] == "entry"
+        assert query["request_options"]["paginate"]["rows"] == 50
+
 
 # ---------------------------------------------------------------------------
 # get_pdbids_for_uniprot
@@ -215,7 +224,7 @@ class TestGetPdbidsForUniprot:
             "result_set": [
                 {"identifier": "3dzu"},
                 {"identifier": "1CBS"},
-                {"identifier": "1cbs"},  # duplicate, different case
+                {"identifier": "1cbs"},
             ]
         }
         mock_post.return_value = resp
@@ -268,37 +277,52 @@ class TestGetPdbidsForUniprot:
         result = pdb_utils.get_pdbids_for_uniprot("P00000")
         assert result == []
 
+    @patch("core.pdb_utils.requests.post")
+    def test_corrupt_cache_file_triggers_refetch(self, mock_post, tmp_path):
+        cache_dir = os.path.join(str(tmp_path), "uniprot")
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(os.path.join(cache_dir, "P00734.json"), "w") as fh:
+            fh.write("{not valid json")
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"result_set": [{"identifier": "1CBS"}]}
+        mock_post.return_value = resp
+
+        result = pdb_utils.get_pdbids_for_uniprot("P00734")
+        assert result == ["1CBS"]
+        mock_post.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # get_pdb_file
 # ---------------------------------------------------------------------------
 
 class TestGetPdbFile:
-    @patch("core.pdb_utils._download")
-    def test_builds_rcsb_url_and_filename_by_default(self, mock_download, tmp_path):
-        def fake_download(url, dest_path, retries=3):
-            with open(dest_path, "wb") as fh:
-                fh.write(b"data")
-            return True
-        mock_download.side_effect = fake_download
+    @patch("core.http_cache.requests.get")
+    def test_builds_rcsb_url_and_filename_by_default(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.content = b"data"
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
 
         result = pdb_utils.get_pdb_file("1CBS")
 
         assert result.endswith("1CBS.cif.gz")
-        called_url = mock_download.call_args[0][0]
+        called_url = mock_get.call_args[0][0]
         assert called_url == "https://files.rcsb.org/download/1cbs.cif.gz"
 
-    @patch("core.pdb_utils._download")
-    def test_uses_pdb_redo_url_when_flag_set(self, mock_download, tmp_path):
-        def fake_download(url, dest_path, retries=3):
-            with open(dest_path, "wb") as fh:
-                fh.write(b"data")
-            return True
-        mock_download.side_effect = fake_download
+    @patch("core.http_cache.requests.get")
+    def test_uses_pdb_redo_url_when_flag_set(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.content = b"data"
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
 
         result = pdb_utils.get_pdb_file("1CBS", pdb_redo=True)
 
-        called_url = mock_download.call_args[0][0]
+        called_url = mock_get.call_args[0][0]
         assert called_url == "https://pdb-redo.eu/db/1cbs/1cbs_final.cif"
         assert result.endswith("1cbs_final.cif")
 
@@ -307,12 +331,13 @@ class TestGetPdbFile:
         with open(cached, "wb") as fh:
             fh.write(b"cached-content")
 
-        with patch("core.pdb_utils._download") as mock_download:
+        with patch("core.http_cache.requests.get") as mock_get:
             result = pdb_utils.get_pdb_file("1CBS")
-            mock_download.assert_not_called()
+            mock_get.assert_not_called()
         assert result == cached
 
-    @patch("core.pdb_utils._download", return_value=False)
-    def test_returns_empty_string_on_download_failure(self, mock_download, tmp_path):
+    @patch("core.http_cache.requests.get")
+    def test_returns_empty_string_on_download_failure(self, mock_get, tmp_path):
+        mock_get.side_effect = requests.exceptions.ConnectionError("down")
         result = pdb_utils.get_pdb_file("9ZZZ")
         assert result == ""

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module http_cache</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">http_cache</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Chttp_cache.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\http_cache.py</a></td></tr></table>
+    <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;Copyright&nbsp;2010-2024&nbsp;Adrià&nbsp;Cereto&nbsp;Massagué<br>
+#&nbsp;&nbsp;&nbsp;Added&nbsp;during&nbsp;refactor:&nbsp;shared&nbsp;HTTP&nbsp;download&nbsp;+&nbsp;disk-cache&nbsp;helpers.<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;The&nbsp;"check&nbsp;local&nbsp;cache&nbsp;dir,&nbsp;download&nbsp;with&nbsp;retries&nbsp;if&nbsp;missing,&nbsp;log&nbsp;and<br>
+#&nbsp;&nbsp;&nbsp;swallow&nbsp;errors"&nbsp;pattern&nbsp;used&nbsp;to&nbsp;be&nbsp;duplicated&nbsp;almost&nbsp;verbatim&nbsp;across<br>
+#&nbsp;&nbsp;&nbsp;pdb_utils.py,&nbsp;eds_utils.py&nbsp;and&nbsp;pdb_redo_utils.py.&nbsp;This&nbsp;module&nbsp;is&nbsp;the<br>
+#&nbsp;&nbsp;&nbsp;single&nbsp;place&nbsp;that&nbsp;pattern&nbsp;now&nbsp;lives;&nbsp;the&nbsp;three&nbsp;call&nbsp;sites&nbsp;keep&nbsp;their<br>
+#&nbsp;&nbsp;&nbsp;own&nbsp;module-specific&nbsp;caching&nbsp;decisions&nbsp;(what&nbsp;to&nbsp;cache,&nbsp;under&nbsp;which<br>
+#&nbsp;&nbsp;&nbsp;filename,&nbsp;how&nbsp;to&nbsp;parse&nbsp;it)&nbsp;but&nbsp;delegate&nbsp;the&nbsp;actual&nbsp;network&nbsp;I/O&nbsp;here.<br>
+#</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="json.html">json</a><br>
+</td><td class="multicolumn"><a href="logging.html">logging</a><br>
+</td><td class="multicolumn"><a href="os.html">os</a><br>
+</td><td class="multicolumn"><a href="requests.html">requests</a><br>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-download_file"><strong>download_file</strong></a>(url, dest_path, timeout=30, retries=3)</dt><dd><span class="code">Download&nbsp;``url``&nbsp;to&nbsp;``dest_path``,&nbsp;retrying&nbsp;up&nbsp;to&nbsp;``retries``&nbsp;times.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;download.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dest_path&nbsp;(str):&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;write&nbsp;the&nbsp;response&nbsp;body&nbsp;to.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Per-request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``30``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;retries&nbsp;(int,&nbsp;optional):&nbsp;Maximum&nbsp;number&nbsp;of&nbsp;attempts&nbsp;before&nbsp;giving&nbsp;up.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``3``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bool:&nbsp;``True``&nbsp;if&nbsp;the&nbsp;download&nbsp;succeeded&nbsp;and&nbsp;the&nbsp;file&nbsp;was&nbsp;written,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``False``&nbsp;if&nbsp;every&nbsp;attempt&nbsp;failed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Request&nbsp;and&nbsp;I/O&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;on&nbsp;each&nbsp;attempt<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;logged&nbsp;as&nbsp;warnings;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``False``&nbsp;instead<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+ <dl><dt><a name="-download_if_missing"><strong>download_if_missing</strong></a>(url, dest_path, timeout=30, retries=3)</dt><dd><span class="code">Ensure&nbsp;``dest_path``&nbsp;exists&nbsp;locally,&nbsp;downloading&nbsp;``url``&nbsp;if&nbsp;it&nbsp;doesn't.<br>
+&nbsp;<br>
+A&nbsp;file&nbsp;is&nbsp;considered&nbsp;already&nbsp;cached&nbsp;if&nbsp;it&nbsp;exists&nbsp;and&nbsp;is&nbsp;non-empty;&nbsp;in<br>
+that&nbsp;case&nbsp;no&nbsp;network&nbsp;request&nbsp;is&nbsp;made&nbsp;at&nbsp;all.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;download&nbsp;if&nbsp;``dest_path``&nbsp;is&nbsp;missing&nbsp;or&nbsp;empty.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dest_path&nbsp;(str):&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;check/write.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Per-request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``30``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;retries&nbsp;(int,&nbsp;optional):&nbsp;Maximum&nbsp;download&nbsp;attempts.&nbsp;Defaults&nbsp;to&nbsp;``3``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bool:&nbsp;``True``&nbsp;if&nbsp;``dest_path``&nbsp;is&nbsp;usable&nbsp;afterwards&nbsp;(already<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cached,&nbsp;or&nbsp;freshly&nbsp;downloaded),&nbsp;``False``&nbsp;if&nbsp;it&nbsp;had&nbsp;to&nbsp;be<br>
+&nbsp;&nbsp;&nbsp;&nbsp;downloaded&nbsp;and&nbsp;every&nbsp;attempt&nbsp;failed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;See&nbsp;:func:`download_file`.</span></dd></dl>
+ <dl><dt><a name="-download_or_404"><strong>download_or_404</strong></a>(url, dest_path, timeout=60, stream=False, chunk_size=65536)</dt><dd><span class="code">Download&nbsp;``url``&nbsp;to&nbsp;``dest_path``&nbsp;in&nbsp;a&nbsp;single&nbsp;attempt,&nbsp;distinguishing&nbsp;"not&nbsp;found".<br>
+&nbsp;<br>
+Unlike&nbsp;:func:`download_file`,&nbsp;this&nbsp;makes&nbsp;exactly&nbsp;one&nbsp;request&nbsp;and&nbsp;treats<br>
+an&nbsp;HTTP&nbsp;404&nbsp;as&nbsp;a&nbsp;distinct,&nbsp;non-error&nbsp;outcome&nbsp;(some&nbsp;datasets&nbsp;simply&nbsp;have<br>
+no&nbsp;file&nbsp;for&nbsp;a&nbsp;given&nbsp;entry).&nbsp;Used&nbsp;by&nbsp;callers&nbsp;that&nbsp;want&nbsp;to&nbsp;tell&nbsp;"this<br>
+entry&nbsp;has&nbsp;no&nbsp;such&nbsp;resource"&nbsp;apart&nbsp;from&nbsp;"the&nbsp;request&nbsp;failed".<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;download.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;dest_path&nbsp;(str):&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;write&nbsp;the&nbsp;response&nbsp;body<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to.&nbsp;When&nbsp;``stream``&nbsp;is&nbsp;``True``,&nbsp;content&nbsp;is&nbsp;first&nbsp;written&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``dest_path&nbsp;+&nbsp;".part"``&nbsp;and&nbsp;atomically&nbsp;renamed&nbsp;on&nbsp;success,&nbsp;so&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;failed/interrupted&nbsp;download&nbsp;never&nbsp;leaves&nbsp;a&nbsp;partial&nbsp;file&nbsp;at&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;final&nbsp;path.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``60``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;stream&nbsp;(bool,&nbsp;optional):&nbsp;If&nbsp;``True``,&nbsp;stream&nbsp;the&nbsp;response&nbsp;body&nbsp;in<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;chunks&nbsp;instead&nbsp;of&nbsp;buffering&nbsp;it&nbsp;fully&nbsp;in&nbsp;memory.&nbsp;Use&nbsp;for&nbsp;large<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;files&nbsp;(e.g.&nbsp;full&nbsp;electron&nbsp;density&nbsp;maps).&nbsp;Defaults&nbsp;to&nbsp;``False``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;chunk_size&nbsp;(int,&nbsp;optional):&nbsp;Chunk&nbsp;size&nbsp;in&nbsp;bytes&nbsp;when&nbsp;``stream``&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``True``.&nbsp;Defaults&nbsp;to&nbsp;64&nbsp;KiB.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bool&nbsp;or&nbsp;None:&nbsp;``True``&nbsp;on&nbsp;success,&nbsp;``False``&nbsp;if&nbsp;the&nbsp;request&nbsp;failed<br>
+&nbsp;&nbsp;&nbsp;&nbsp;for&nbsp;a&nbsp;reason&nbsp;other&nbsp;than&nbsp;"not&nbsp;found",&nbsp;or&nbsp;``None``&nbsp;if&nbsp;the&nbsp;server<br>
+&nbsp;&nbsp;&nbsp;&nbsp;responded&nbsp;``404``&nbsp;(resource&nbsp;does&nbsp;not&nbsp;exist&nbsp;for&nbsp;this&nbsp;entry).<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request&nbsp;and&nbsp;I/O&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and&nbsp;logged;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``False``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;them.</span></dd></dl>
+ <dl><dt><a name="-entry_cache_dir"><strong>entry_cache_dir</strong></a>(cachedir_root, pdbid)</dt><dd><span class="code">Return&nbsp;the&nbsp;per-entry&nbsp;cache&nbsp;directory&nbsp;for&nbsp;a&nbsp;PDB&nbsp;id,&nbsp;creating&nbsp;it&nbsp;if&nbsp;needed.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cachedir_root&nbsp;(str):&nbsp;Root&nbsp;cache&nbsp;directory&nbsp;(e.g.&nbsp;``pdb_utils.CACHEDIR``).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier.&nbsp;Case&nbsp;is&nbsp;normalized&nbsp;to&nbsp;lower-case,&nbsp;since<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;all&nbsp;three&nbsp;callers&nbsp;key&nbsp;their&nbsp;per-entry&nbsp;cache&nbsp;directories&nbsp;by<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;PDB&nbsp;id.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;str:&nbsp;Path&nbsp;to&nbsp;``{cachedir_root}/{pdbid.lower()}``,&nbsp;guaranteed&nbsp;to&nbsp;exist.</span></dd></dl>
+ <dl><dt><a name="-fetch_json"><strong>fetch_json</strong></a>(url, cache_path, timeout=30)</dt><dd><span class="code">Return&nbsp;parsed&nbsp;JSON&nbsp;for&nbsp;``url``,&nbsp;using&nbsp;``cache_path``&nbsp;as&nbsp;an&nbsp;on-disk&nbsp;cache.<br>
+&nbsp;<br>
+If&nbsp;a&nbsp;valid&nbsp;cached&nbsp;copy&nbsp;exists&nbsp;at&nbsp;``cache_path``&nbsp;it&nbsp;is&nbsp;loaded&nbsp;and<br>
+returned&nbsp;directly,&nbsp;with&nbsp;no&nbsp;network&nbsp;request.&nbsp;Otherwise&nbsp;``url``&nbsp;is<br>
+fetched&nbsp;with&nbsp;a&nbsp;plain&nbsp;GET,&nbsp;the&nbsp;parsed&nbsp;JSON&nbsp;is&nbsp;cached&nbsp;to&nbsp;``cache_path``<br>
+(best&nbsp;effort)&nbsp;and&nbsp;returned.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;GET&nbsp;and&nbsp;parse&nbsp;as&nbsp;JSON.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cache_path&nbsp;(str):&nbsp;Local&nbsp;path&nbsp;used&nbsp;both&nbsp;to&nbsp;read&nbsp;an&nbsp;existing&nbsp;cache<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;to&nbsp;write&nbsp;a&nbsp;freshly-fetched&nbsp;one.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``30``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;The&nbsp;parsed&nbsp;JSON&nbsp;value,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;there&nbsp;is&nbsp;no&nbsp;usable&nbsp;cache&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;fetch/parse&nbsp;failed.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Request&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and&nbsp;logged;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;them.</span></dd></dl>
+ <dl><dt><a name="-load_cached_json"><strong>load_cached_json</strong></a>(cache_path)</dt><dd><span class="code">Best-effort&nbsp;load&nbsp;of&nbsp;a&nbsp;JSON&nbsp;cache&nbsp;file.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cache_path&nbsp;(str):&nbsp;Path&nbsp;to&nbsp;a&nbsp;JSON&nbsp;file&nbsp;previously&nbsp;written&nbsp;by<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`save_json`&nbsp;or&nbsp;:func:`fetch_json`.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;The&nbsp;parsed&nbsp;JSON&nbsp;value,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;the&nbsp;file&nbsp;is&nbsp;missing,&nbsp;empty,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;or&nbsp;not&nbsp;valid&nbsp;JSON.<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+ <dl><dt><a name="-save_json"><strong>save_json</strong></a>(cache_path, data)</dt><dd><span class="code">Best-effort&nbsp;write&nbsp;of&nbsp;``data``&nbsp;as&nbsp;JSON&nbsp;to&nbsp;``cache_path``.<br>
+&nbsp;<br>
+Failures&nbsp;are&nbsp;swallowed&nbsp;(a&nbsp;cache&nbsp;write&nbsp;is&nbsp;an&nbsp;optimization,&nbsp;not&nbsp;something<br>
+that&nbsp;should&nbsp;ever&nbsp;fail&nbsp;the&nbsp;caller's&nbsp;request).<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;cache_path&nbsp;(str):&nbsp;Destination&nbsp;path.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;data:&nbsp;JSON-serializable&nbsp;value&nbsp;to&nbsp;write.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>logger</strong> = &lt;Logger http_cache (WARNING)&gt;</td></tr></table>
+</body></html>

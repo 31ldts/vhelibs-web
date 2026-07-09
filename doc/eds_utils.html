@@ -17,6 +17,11 @@
 #&nbsp;&nbsp;&nbsp;Added:&nbsp;<a href="#-get_edm">get_edm</a>()&nbsp;to&nbsp;fetch&nbsp;the&nbsp;full&nbsp;electron&nbsp;density&nbsp;map&nbsp;(CCP4&nbsp;format),<br>
 #&nbsp;&nbsp;&nbsp;which&nbsp;EDS_parser.py&nbsp;used&nbsp;to&nbsp;fetch&nbsp;from&nbsp;the&nbsp;now-defunct<br>
 #&nbsp;&nbsp;&nbsp;edmaps.rcsb.org/maps/{}_2fofc.dsn6&nbsp;endpoint.<br>
+#&nbsp;&nbsp;&nbsp;Refactor:&nbsp;get_edm/get_EDS&nbsp;now&nbsp;share&nbsp;their&nbsp;single-attempt,<br>
+#&nbsp;&nbsp;&nbsp;404-aware&nbsp;download&nbsp;logic&nbsp;via&nbsp;core.http_cache.download_or_404&nbsp;(this&nbsp;was<br>
+#&nbsp;&nbsp;&nbsp;duplicated,&nbsp;with&nbsp;only&nbsp;minor&nbsp;variations,&nbsp;across&nbsp;this&nbsp;module,<br>
+#&nbsp;&nbsp;&nbsp;pdb_utils.py&nbsp;and&nbsp;pdb_redo_utils.py);&nbsp;the&nbsp;XML&nbsp;parsing&nbsp;in&nbsp;get_EDS&nbsp;was<br>
+#&nbsp;&nbsp;&nbsp;split&nbsp;into&nbsp;the&nbsp;private&nbsp;_parse_validation_xml&nbsp;helper.<br>
 #</span></p>
 <p>
 <table class="section">
@@ -25,10 +30,10 @@
     
 <tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
 <td class="singlecolumn"><table><tr><td class="multicolumn"><a href="xml.etree.ElementTree.html">xml.etree.ElementTree</a><br>
-<a href="logging.html">logging</a><br>
-</td><td class="multicolumn"><a href="os.html">os</a><br>
-<a href="core.pdb_utils.html">core.pdb_utils</a><br>
-</td><td class="multicolumn"><a href="requests.html">requests</a><br>
+<a href="core.http_cache.html">core.http_cache</a><br>
+</td><td class="multicolumn"><a href="logging.html">logging</a><br>
+<a href="os.html">os</a><br>
+</td><td class="multicolumn"><a href="core.pdb_utils.html">core.pdb_utils</a><br>
 </td><td class="multicolumn"></td></tr></table></td></tr></table><p>
 <table class="section">
 <tr class="decor functions-decor heading-text">

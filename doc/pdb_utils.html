@@ -15,6 +15,11 @@
 #&nbsp;&nbsp;&nbsp;Migrated&nbsp;to&nbsp;web&nbsp;version.<br>
 #&nbsp;&nbsp;&nbsp;Changes:&nbsp;uses&nbsp;requests&nbsp;with&nbsp;proper&nbsp;SSL/timeout&nbsp;handling,&nbsp;no&nbsp;Jython/Cython&nbsp;deps,<br>
 #&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CACHEDIR&nbsp;configurable&nbsp;via&nbsp;<a href="#-set_cache_dir">set_cache_dir</a>().<br>
+#&nbsp;&nbsp;&nbsp;Refactor:&nbsp;download/cache-on-disk&nbsp;logic&nbsp;now&nbsp;delegates&nbsp;to&nbsp;core.http_cache<br>
+#&nbsp;&nbsp;&nbsp;(was&nbsp;duplicated&nbsp;near-verbatim&nbsp;across&nbsp;this&nbsp;module,&nbsp;eds_utils.py&nbsp;and<br>
+#&nbsp;&nbsp;&nbsp;pdb_redo_utils.py);&nbsp;dropped&nbsp;the&nbsp;unused&nbsp;``_g``&nbsp;nested&nbsp;helper&nbsp;in<br>
+#&nbsp;&nbsp;&nbsp;get_custom_report&nbsp;and&nbsp;split&nbsp;its&nbsp;field-extraction&nbsp;into<br>
+#&nbsp;&nbsp;&nbsp;``_extract_report_fields``&nbsp;for&nbsp;readability.<br>
 #</span></p>
 <p>
 <table class="section">
@@ -22,7 +27,7 @@
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
     
 <tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
-<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="json.html">json</a><br>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="core.http_cache.html">core.http_cache</a><br>
 <a href="logging.html">logging</a><br>
 </td><td class="multicolumn"><a href="os.html">os</a><br>
 <a href="requests.html">requests</a><br>
@@ -78,8 +83,9 @@ Returns:<br>
 &nbsp;<br>
 Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Download&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(via<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`_download`)&nbsp;and&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;function&nbsp;returns&nbsp;``""``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.http_cache.download_if_missing`)&nbsp;and&nbsp;reported&nbsp;via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``""``&nbsp;instead&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
  <dl><dt><a name="-get_pdbids_for_uniprot"><strong>get_pdbids_for_uniprot</strong></a>(uniprot_id, max_results=200)</dt><dd><span class="code">Resolve&nbsp;a&nbsp;UniProt&nbsp;accession&nbsp;to&nbsp;the&nbsp;PDB&nbsp;entries&nbsp;that&nbsp;reference&nbsp;it.<br>
 &nbsp;<br>
 Queries&nbsp;the&nbsp;RCSB&nbsp;Search&nbsp;API&nbsp;to&nbsp;find&nbsp;every&nbsp;PDB&nbsp;entry&nbsp;whose&nbsp;polymer<br>

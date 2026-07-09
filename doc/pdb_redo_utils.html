@@ -15,6 +15,10 @@
 #&nbsp;&nbsp;&nbsp;Migrated&nbsp;to&nbsp;web&nbsp;version.<br>
 #&nbsp;&nbsp;&nbsp;Changes:&nbsp;replaced&nbsp;urllib&nbsp;with&nbsp;requests;&nbsp;removed&nbsp;Java/Jython&nbsp;locale&nbsp;hacks;<br>
 #&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;removed&nbsp;CSV-based&nbsp;legacy&nbsp;fallback;&nbsp;no&nbsp;Cython&nbsp;deps.<br>
+#&nbsp;&nbsp;&nbsp;Refactor:&nbsp;download/cache-on-disk&nbsp;logic&nbsp;now&nbsp;delegates&nbsp;to&nbsp;core.http_cache<br>
+#&nbsp;&nbsp;&nbsp;(was&nbsp;duplicated&nbsp;near-verbatim&nbsp;across&nbsp;this&nbsp;module,&nbsp;pdb_utils.py&nbsp;and<br>
+#&nbsp;&nbsp;&nbsp;eds_utils.py);&nbsp;split&nbsp;JSON&nbsp;parsing&nbsp;in&nbsp;get_ED_data&nbsp;and&nbsp;get_pdbredo_data<br>
+#&nbsp;&nbsp;&nbsp;into&nbsp;private&nbsp;helpers.<br>
 #</span></p>
 <p>
 <table class="section">
@@ -22,12 +26,11 @@
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
     
 <tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
-<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="json.html">json</a><br>
-<a href="logging.html">logging</a><br>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="core.http_cache.html">core.http_cache</a><br>
+</td><td class="multicolumn"><a href="logging.html">logging</a><br>
 </td><td class="multicolumn"><a href="os.html">os</a><br>
-<a href="core.pdb_utils.html">core.pdb_utils</a><br>
-</td><td class="multicolumn"><a href="requests.html">requests</a><br>
-</td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+</td><td class="multicolumn"><a href="core.pdb_utils.html">core.pdb_utils</a><br>
+</td></tr></table></td></tr></table><p>
 <table class="section">
 <tr class="decor functions-decor heading-text">
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
@@ -48,8 +51,9 @@ Returns:<br>
 &nbsp;<br>
 Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Download&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(via<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`_download`)&nbsp;and&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;function&nbsp;returns&nbsp;``None``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.http_cache.download_if_missing`)&nbsp;and&nbsp;reported&nbsp;via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``&nbsp;instead&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
  <dl><dt><a name="-get_ED_data"><strong>get_ED_data</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;per-residue&nbsp;RSR/RSCC&nbsp;electron-density&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
 &nbsp;<br>
 Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDB-REDO&nbsp;``*_final.json``&nbsp;file&nbsp;for<br>

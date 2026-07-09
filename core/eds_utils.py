@@ -6,14 +6,18 @@
 #   Added: get_edm() to fetch the full electron density map (CCP4 format),
 #   which EDS_parser.py used to fetch from the now-defunct
 #   edmaps.rcsb.org/maps/{}_2fofc.dsn6 endpoint.
+#   Refactor: get_edm/get_EDS now share their single-attempt,
+#   404-aware download logic via core.http_cache.download_or_404 (this was
+#   duplicated, with only minor variations, across this module,
+#   pdb_utils.py and pdb_redo_utils.py); the XML parsing in get_EDS was
+#   split into the private _parse_validation_xml helper.
 #
 import os
 import logging
 import xml.etree.ElementTree as ET
 
-import requests
-
 import core.pdb_utils as pdb_utils
+import core.http_cache as http_cache
 from core.pdb_atom import format_reskey
 
 logger = logging.getLogger(__name__)
@@ -111,32 +115,59 @@ def get_edm(pdbid, use_cache=True):
             ``(None, None)`` instead of propagating exceptions.
     """
     pdbid = pdbid.lower()
-    downloaddir = os.path.join(pdb_utils.CACHEDIR, pdbid)
-    os.makedirs(downloaddir, exist_ok=True)
+    downloaddir = http_cache.entry_cache_dir(pdb_utils.CACHEDIR, pdbid)
     mapfile = os.path.join(downloaddir, f"{pdbid}.ccp4")
 
     if use_cache and os.path.isfile(mapfile) and os.path.getsize(mapfile) > 0:
         return mapfile, 1.0
 
     url = EDM_URL.format(pdbid)
-    try:
-        logger.info("Downloading EDM %s", url)
-        r = requests.get(url, timeout=120, verify=True, stream=True)
-        if r.status_code == 404:
-            logger.warning("No EDM available for %s", pdbid)
-            return None, None
-        r.raise_for_status()
-        tmp_path = mapfile + ".part"
-        with open(tmp_path, "wb") as fh:
-            for chunk in r.iter_content(chunk_size=1 << 16):
-                if chunk:
-                    fh.write(chunk)
-        os.replace(tmp_path, mapfile)
-    except Exception as exc:
-        logger.error("EDM fetch error for %s: %s", pdbid, exc)
-        return None, None
+    logger.info("Downloading EDM %s", url)
+    result = http_cache.download_or_404(url, mapfile, timeout=120, stream=True)
 
+    if result is None:
+        logger.warning("No EDM available for %s", pdbid)
+        return None, None
+    if result is False:
+        return None, None
     return mapfile, 1.0
+
+
+def _parse_validation_xml(xml_path):
+    """Parse a PDBe validation XML file into a per-residue statistics dict.
+
+    Args:
+        xml_path (str): Path to a previously downloaded
+            ``{pdbid}_validation.xml`` file.
+
+    Returns:
+        dict: Mapping of residue key (as produced by
+        :func:`core.pdb_atom.format_reskey`) to a dict with keys
+        ``"RSR"``, ``"RSCC"``, ``"OWAB"``, ``"RSRZ"``, and ``"occupancy"``
+        (all floats).
+
+    Raises:
+        xml.etree.ElementTree.ParseError: If ``xml_path`` is not
+            well-formed XML.
+        OSError: If ``xml_path`` cannot be read.
+    """
+    edd_dict = {}
+    tree = ET.parse(xml_path)
+    for res in tree.findall("ModelledSubgroup"):
+        residue = format_reskey(
+            res.get("resname", ""),
+            res.get("chain", ""),
+            res.get("resnum", "") or "0",
+            res.get("icode", ""),
+        )
+        edd_dict[residue] = {
+            "RSR": float(res.get("rsr") or 100),
+            "RSCC": float(res.get("rscc") or 0),
+            "OWAB": float(res.get("owab") or 1000),
+            "RSRZ": float(res.get("rsrz") or 9999),
+            "occupancy": float(res.get("avgoccu") or 0),
+        }
+    return edd_dict
 
 
 def get_EDS(pdbid):
@@ -171,53 +202,32 @@ def get_EDS(pdbid):
     """
     pdbid = pdbid.lower()
     pdbdict = {pdbid: None}
-    edd_dict = {}
 
     url = EDSTATS_URL.format(pdbid)
-    downloaddir = os.path.join(pdb_utils.CACHEDIR, pdbid)
-    os.makedirs(downloaddir, exist_ok=True)
+    downloaddir = http_cache.entry_cache_dir(pdb_utils.CACHEDIR, pdbid)
     stat_path = os.path.join(downloaddir, f"{pdbid}_validation.xml")
 
     try:
         if not os.path.isfile(stat_path):
             logger.info("Downloading %s", url)
-            r = requests.get(url, timeout=60, verify=True)
-            if r.status_code == 404:
+            result = http_cache.download_or_404(url, stat_path, timeout=60)
+            if not result:
+                # None (404) and False (request error) both mean "no data".
                 pdbdict[pdbid] = False
-                return pdbdict, edd_dict
-            r.raise_for_status()
-            with open(stat_path, "wb") as fh:
-                fh.write(r.content)
+                return pdbdict, {}
 
         if not os.path.isfile(stat_path):
             pdbdict[pdbid] = False
-            return pdbdict, edd_dict
+            return pdbdict, {}
 
-        tree = ET.parse(stat_path)
-        for res in tree.findall("ModelledSubgroup"):
-            residue = format_reskey(
-                res.get("resname", ""),
-                res.get("chain", ""),
-                res.get("resnum", "") or "0",
-                res.get("icode", ""),
-            )
-
-            resdict = {
-                "RSR": float(res.get("rsr") or 100),
-                "RSCC": float(res.get("rscc") or 0),
-                "OWAB": float(res.get("owab") or 1000),
-                "RSRZ": float(res.get("rsrz") or 9999),
-                "occupancy": float(res.get("avgoccu") or 0),
-            }
-            edd_dict[residue] = resdict
-
+        edd_dict = _parse_validation_xml(stat_path)
         pdbdict[pdbid] = True
+        return pdbdict, edd_dict
 
     except Exception as exc:
         logger.error("EDS fetch error for %s: %s", pdbid, exc)
         pdbdict[pdbid] = str(exc)
-
-    return pdbdict, edd_dict
+        return pdbdict, {}
 
 
 # Clearer alias used by newer call sites; kept get_EDS for backwards

@@ -4,13 +4,19 @@
 #   Migrated to web version.
 #   Changes: uses requests with proper SSL/timeout handling, no Jython/Cython deps,
 #            CACHEDIR configurable via set_cache_dir().
+#   Refactor: download/cache-on-disk logic now delegates to core.http_cache
+#   (was duplicated near-verbatim across this module, eds_utils.py and
+#   pdb_redo_utils.py); dropped the unused ``_g`` nested helper in
+#   get_custom_report and split its field-extraction into
+#   ``_extract_report_fields`` for readability.
 #
 import os
-import json
 import logging
 import tempfile
 
 import requests
+
+import core.http_cache as http_cache
 
 logger = logging.getLogger(__name__)
 
@@ -48,38 +54,78 @@ def set_cache_dir(path):
     os.makedirs(CACHEDIR, exist_ok=True)
 
 
-def _download(url, dest_path, retries=3):
-    """Download a URL to a local file, retrying on failure.
+def _get_nested(d, *keys, default=None):
+    """Safely retrieve a nested value from a dict of dicts.
 
-    Attempts to fetch ``url`` and write its raw content to ``dest_path``,
-    retrying up to ``retries`` times if a request fails.
+    Walks through ``d`` following ``keys`` in order, returning ``default``
+    as soon as any intermediate value is not a dict or is ``None``.
 
     Args:
-        url (str): URL to download.
-        dest_path (str): Local filesystem path where the downloaded
-            content will be written.
-        retries (int, optional): Maximum number of attempts before giving
-            up. Defaults to ``3``.
+        d (dict): Dictionary (possibly nested) to traverse.
+        *keys: Sequence of keys to look up successively.
+        default: Value to return if any step of the traversal is missing
+            or ``None``. Defaults to ``None``.
 
     Returns:
-        bool: ``True`` if the download succeeded and the file was written,
-        ``False`` if all attempts failed.
+        Any: The value found at the end of the key path, or ``default`` if
+        the path could not be fully resolved.
 
     Raises:
-        None: Request and I/O errors are caught internally on each
-            attempt and logged as warnings; the function returns
-            ``False`` instead of propagating exceptions.
+        None
     """
-    for attempt in range(1, retries + 1):
-        try:
-            r = requests.get(url, timeout=30, verify=True)
-            r.raise_for_status()
-            with open(dest_path, "wb") as fh:
-                fh.write(r.content)
-            return True
-        except Exception as exc:
-            logger.warning("Download attempt %d/%d failed for %s: %s", attempt, retries, url, exc)
-    return False
+    for key in keys:
+        if not isinstance(d, dict):
+            return default
+        d = d.get(key)
+        if d is None:
+            return default
+    return d
+
+
+def _extract_report_fields(rawdict):
+    """Extract refinement/unit-cell statistics from a raw RCSB entry payload.
+
+    Args:
+        rawdict (dict): Parsed JSON response from the RCSB entry REST API
+            (see ``QUERY_TPL``).
+
+    Returns:
+        dict: Dictionary of refinement/unit-cell fields with safe
+        fallbacks (see :func:`get_custom_report` for the full key list).
+
+    Raises:
+        Exception: Propagates any error encountered while indexing into
+            ``rawdict`` (e.g. if it isn't shaped like an RCSB entry
+            payload at all); callers are expected to catch this.
+    """
+    info = rawdict.get("rcsb_entry_info") or {}
+    refine = (rawdict.get("refine") or [{}])[0]  # first refinement block or empty dict
+    cell = rawdict.get("cell") or {}
+
+    method = info.get("experimental_method", "")
+
+    # Resolution: try ls_d_res_high first, then ls_d_res_low (some entries only have one),
+    # then the entry-level resolution from rcsb_entry_info.
+    resolution = (
+        refine.get("ls_d_res_high")
+        or refine.get("ls_d_res_low")
+        or info.get("resolution_combined", [None])[0]
+        or 0.0
+    )
+
+    return {
+        "experimentalTechnique": method,
+        "rFree":                 refine.get("ls_R_factor_R_free") or 9999,
+        "rWork":                 refine.get("ls_R_factor_R_work") or 9999,
+        "refinementResolution":  float(resolution) if resolution else 0.0,
+        "nreflections":          refine.get("ls_number_reflns_rfree") or 0,
+        "unitCellAngleAlpha":    cell.get("angle_alpha") or 0.0,
+        "unitCellAngleBeta":     cell.get("angle_beta") or 0.0,
+        "unitCellAngleGamma":    cell.get("angle_gamma") or 0.0,
+        "lengthOfUnitCellLatticeA": cell.get("length_a") or 0.0,
+        "lengthOfUnitCellLatticeB": cell.get("length_b") or 0.0,
+        "lengthOfUnitCellLatticeC": cell.get("length_c") or 0.0,
+    }
 
 
 def get_custom_report(pdbid):
@@ -113,100 +159,55 @@ def get_custom_report(pdbid):
     """
     pdbid = pdbid.upper()
     url = QUERY_TPL.format(pdbid.lower())
-    cachedir = os.path.join(CACHEDIR, pdbid.lower())
-    os.makedirs(cachedir, exist_ok=True)
+    cachedir = http_cache.entry_cache_dir(CACHEDIR, pdbid)
     cache_path = os.path.join(cachedir, "pdb_stats.json")
 
-    # ── Load from cache or network ─────────────────────────────────────────
-    rawdict = None
-    if os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0:
-        logger.debug("Loading cached stats: %s", cache_path)
-        try:
-            with open(cache_path, "rt") as fh:
-                rawdict = json.load(fh)
-        except Exception:
-            rawdict = None
-
+    rawdict = http_cache.fetch_json(url, cache_path, timeout=30)
     if rawdict is None:
-        logger.info("Fetching %s", url)
-        try:
-            r = requests.get(url, timeout=30, verify=True)
-            r.raise_for_status()
-            rawdict = r.json()
-            with open(cache_path, "wt") as fh:
-                json.dump(rawdict, fh)
-        except Exception as exc:
-            logger.error("Could not fetch report for %s: %s", pdbid, exc)
-            return {}
-
-    # ── Extract fields with safe fallbacks ────────────────────────────────
-    def _g(d, *keys, default=None):
-        """Safely retrieve a nested value from a dict of dicts.
-
-        Walks through ``d`` following ``keys`` in order, returning
-        ``default`` as soon as any intermediate value is not a dict or is
-        ``None``.
-
-        Args:
-            d (dict): Dictionary (possibly nested) to traverse.
-            *keys: Sequence of keys to look up successively.
-            default: Value to return if any step of the traversal is
-                missing or ``None``. Defaults to ``None``.
-
-        Returns:
-            Any: The value found at the end of the key path, or
-            ``default`` if the path could not be fully resolved.
-
-        Raises:
-            None
-        """
-        for k in keys:
-            if not isinstance(d, dict):
-                return default
-            d = d.get(k)
-            if d is None:
-                return default
-        return d
+        return {}
 
     try:
-        info    = rawdict.get("rcsb_entry_info") or {}
-        refine  = (rawdict.get("refine") or [{}])[0]  # first refinement block or empty dict
-        cell    = rawdict.get("cell") or {}
-
-        method = info.get("experimental_method", "")
-
-        # Resolution: try ls_d_res_high first, then ls_d_res_low (some entries only have one),
-        # then the entry-level resolution from rcsb_entry_info.
-        resolution = (
-            refine.get("ls_d_res_high")
-            or refine.get("ls_d_res_low")
-            or info.get("resolution_combined", [None])[0]
-            or 0.0
-        )
-
-        rowdict = {
-            "experimentalTechnique": method,
-            "rFree":                 refine.get("ls_R_factor_R_free")  or 9999,
-            "rWork":                 refine.get("ls_R_factor_R_work")  or 9999,
-            "refinementResolution":  float(resolution) if resolution else 0.0,
-            "nreflections":          refine.get("ls_number_reflns_rfree") or 0,
-            "unitCellAngleAlpha":    cell.get("angle_alpha")  or 0.0,
-            "unitCellAngleBeta":     cell.get("angle_beta")   or 0.0,
-            "unitCellAngleGamma":    cell.get("angle_gamma")  or 0.0,
-            "lengthOfUnitCellLatticeA": cell.get("length_a") or 0.0,
-            "lengthOfUnitCellLatticeB": cell.get("length_b") or 0.0,
-            "lengthOfUnitCellLatticeC": cell.get("length_c") or 0.0,
-        }
-
+        rowdict = _extract_report_fields(rawdict)
         # If there is genuinely no refinement data (pure NMR, etc.) the rFree
         # will be 9999 — the caller (rsr_core) will reject the entry gracefully.
         logger.debug("Stats for %s: rFree=%.4f res=%.2f Å method=%s",
-                     pdbid, rowdict["rFree"], rowdict["refinementResolution"], method)
+                     pdbid, rowdict["rFree"], rowdict["refinementResolution"],
+                     rowdict["experimentalTechnique"])
         return {pdbid: rowdict}
-
     except Exception as exc:
         logger.error("Error parsing stats for %s: %s", pdbid, exc)
         return {}
+
+
+def _build_uniprot_query(uniprot_id, max_results):
+    """Build the RCSB Search API request body for a UniProt->PDB lookup.
+
+    Args:
+        uniprot_id (str): UniProt accession to search for (exact match).
+        max_results (int): Maximum number of PDB entries to request.
+
+    Returns:
+        dict: JSON-serializable request body for ``UNIPROT_SEARCH_URL``.
+
+    Raises:
+        None
+    """
+    return {
+        "query": {
+            "type": "terminal",
+            "service": "text",
+            "parameters": {
+                "attribute": (
+                    "rcsb_polymer_entity_container_identifiers."
+                    "reference_sequence_identifiers.database_accession"
+                ),
+                "operator": "exact_match",
+                "value": uniprot_id,
+            },
+        },
+        "return_type": "entry",
+        "request_options": {"paginate": {"start": 0, "rows": max_results}},
+    }
 
 
 def get_pdbids_for_uniprot(uniprot_id, max_results=200):
@@ -239,30 +240,11 @@ def get_pdbids_for_uniprot(uniprot_id, max_results=200):
     os.makedirs(cachedir, exist_ok=True)
     cache_path = os.path.join(cachedir, f"{uniprot_id}.json")
 
-    if os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0:
-        try:
-            with open(cache_path, "rt") as fh:
-                return json.load(fh)
-        except Exception:
-            pass  # fall through and re-fetch on a corrupt cache entry
+    cached = http_cache.load_cached_json(cache_path)
+    if cached is not None:
+        return cached
 
-    query = {
-        "query": {
-            "type": "terminal",
-            "service": "text",
-            "parameters": {
-                "attribute": (
-                    "rcsb_polymer_entity_container_identifiers."
-                    "reference_sequence_identifiers.database_accession"
-                ),
-                "operator": "exact_match",
-                "value": uniprot_id,
-            },
-        },
-        "return_type": "entry",
-        "request_options": {"paginate": {"start": 0, "rows": max_results}},
-    }
-
+    query = _build_uniprot_query(uniprot_id, max_results)
     try:
         r = requests.post(UNIPROT_SEARCH_URL, json=query, timeout=30)
         if r.status_code == 204:
@@ -280,12 +262,7 @@ def get_pdbids_for_uniprot(uniprot_id, max_results=200):
         logger.error("UniProt->PDB lookup failed for %s: %s", uniprot_id, exc)
         return []
 
-    try:
-        with open(cache_path, "wt") as fh:
-            json.dump(pdbids, fh)
-    except Exception:
-        pass
-
+    http_cache.save_json(cache_path, pdbids)
     return pdbids
 
 
@@ -308,8 +285,9 @@ def get_pdb_file(pdbcode, pdb_redo=False):
 
     Raises:
         None: Download errors are caught internally (via
-            :func:`_download`) and reported via the module logger; the
-            function returns ``""`` instead of propagating exceptions.
+            :func:`core.http_cache.download_if_missing`) and reported via
+            the module logger; the function returns ``""`` instead of
+            propagating exceptions.
     """
     pdbcode_lower = pdbcode.lower()
     os.makedirs(CACHEDIR, exist_ok=True)
@@ -320,12 +298,8 @@ def get_pdb_file(pdbcode, pdb_redo=False):
         url = PDBREDObase_full.format(pdbid=pdbcode_lower)
         filename = os.path.join(CACHEDIR, os.path.basename(url))
 
-    if os.path.isfile(filename) and os.path.getsize(filename) > 0:
-        logger.debug("Using cached file: %s", filename)
-        return filename
-
-    logger.info("Downloading %s → %s", url, filename)
-    if _download(url, filename):
+    if http_cache.download_if_missing(url, filename, timeout=30, retries=3):
+        logger.debug("Using file: %s", filename)
         return filename
 
     logger.error("Could not download %s", url)
