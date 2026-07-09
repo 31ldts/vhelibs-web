@@ -172,7 +172,10 @@
             <input type="text" id="viewerPdbInput" placeholder="e.g. 1cbs" class="th-input" style="text-transform:uppercase" />
           </label>
           <div class="viewer-btn-row">
-            <button id="loadStructureBtn" class="btn btn-primary">Load Structure</button>
+            <button id="reloadViewerBtn" type="button" class="btn btn-primary"
+              title="Recreate the 3D viewer if it has frozen or stopped responding, without losing your analysis results.">
+              Reload Viewer
+            </button>
           </div>
           <div class="viewer-layers">
             <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Display layers</h3>
@@ -227,7 +230,7 @@
              this container is now mounted and driven by Mol* Viewer, not NGL. -->
         <div id="nglContainer" class="ngl-viewport">
           <div class="ngl-placeholder">
-            <p>Enter a PDB ID and click <strong>Load Structure</strong></p>
+            <p>Click <strong>View 3D</strong> on a result in the Results tab to load a structure</p>
           </div>
         </div>
       </div>

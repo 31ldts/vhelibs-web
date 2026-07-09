@@ -494,7 +494,6 @@ let currentIsovalue = 1.0; // relative sigma units
 
 const molContainer        = document.getElementById("nglContainer"); // id kept for CSS compat
 const viewerPdbInput      = document.getElementById("viewerPdbInput");
-const loadStructureBtn    = document.getElementById("loadStructureBtn");
 const viewerLigandList    = document.getElementById("viewerLigandList");
 const viewerResiduePicker = document.getElementById("viewerResiduePicker");
 const viewerDensityControls = document.getElementById("viewerDensityControls");
@@ -502,22 +501,15 @@ const viewerDensityControls = document.getElementById("viewerDensityControls");
 // "Reload Viewer" button — recovers from a hung/frozen Mol* instance
 // (typically a stuck WebGL context after heavy density streaming) without
 // requiring a full page reload, which would otherwise wipe out the
-// Results tab and force re-running the whole analysis job. Created
-// dynamically (rather than added to index.html) so it inherits
-// loadStructureBtn's exact styling with zero risk of drifting from it;
-// if you'd rather have it live in the template markup, it's easy to move.
-const reloadViewerBtn = document.createElement("button");
-reloadViewerBtn.id = "reloadViewerBtn";
-reloadViewerBtn.type = "button";
-reloadViewerBtn.className = loadStructureBtn.className;
-reloadViewerBtn.textContent = "Reload Viewer";
-reloadViewerBtn.title = "Recreate the 3D viewer if it has frozen or stopped responding, without losing your analysis results.";
-reloadViewerBtn.style.marginLeft = "8px";
-loadStructureBtn.insertAdjacentElement("afterend", reloadViewerBtn);
+// Results tab and force re-running the whole analysis job. Declared in
+// index.html; here we just grab the reference and wire it up below.
+const reloadViewerBtn = document.getElementById("reloadViewerBtn");
 const isovalueSlider      = document.getElementById("isovalueSlider");
 const isovalueReadout     = document.getElementById("isovalueReadout");
 const atomRadiusSlider    = document.getElementById("atomRadiusSlider");
 const atomRadiusReadout   = document.getElementById("atomRadiusReadout");
+
+
 
 function pinContainerSize() {
   // Mol*'s WebGL canvas needs the container to report a real, non-zero
@@ -577,13 +569,6 @@ function initMolstar() {
   return viewerInitPromise;
 }
 
-loadStructureBtn.addEventListener("click", () => {
-  if (isLoadingStructure) return;
-  const pdbid = viewerPdbInput.value.trim().toUpperCase();
-  if (!pdbid) return;
-  loadMolstarStructure(pdbid, [], [], [], null, null);
-});
-
 function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source) {
   showTab("viewer");
   viewerPdbInput.value = pdbid.toUpperCase();
@@ -596,8 +581,8 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
     return;
   }
   isLoadingStructure = true;
-  loadStructureBtn.disabled = true;
-  loadStructureBtn.textContent = "Loading…";
+  reloadViewerBtn.disabled = true;
+  reloadViewerBtn.textContent = "Loading…";
   viewerResiduePicker.classList.add("hidden");
   viewerDensityControls.classList.add("hidden");
 
@@ -656,8 +641,8 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
 
 function finishLoading() {
   isLoadingStructure = false;
-  loadStructureBtn.disabled = false;
-  loadStructureBtn.textContent = "Load Structure";
+  reloadViewerBtn.disabled = false;
+  reloadViewerBtn.textContent = "Reload Viewer";
 }
 
 // ── Reload Viewer ────────────────────────────────────────────────────────
