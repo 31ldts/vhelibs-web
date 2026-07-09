@@ -487,7 +487,7 @@ let currentDensityBoxes = null; // {ligand, binding_site, residues_to_examine} b
 let currentDensityAtoms = null; // {ligand, binding_site, residues_to_examine} per-atom centers, or null
 let currentSource = "PDB"; // "PDB" or "PDB_REDO" — decides where density comes from, see buildMvsData
 let currentAtomRadius = 1.6; // Å, radius of the per-atom density clip sphere (user-adjustable)
-let currentFocusRes = null; // residue string clicked in the "components to examine" list, or null
+let currentFocusRes = null; // residue string clicked in the "residues to examine" list, or null
 const layerState = { protein: true, ligand: true, bs: true }; // structure checkbox state
 const densityLayerState = { ligand: true, bs: true, rte: true }; // density checkbox state
 let currentIsovalue = 1.0; // relative sigma units
@@ -498,6 +498,22 @@ const loadStructureBtn    = document.getElementById("loadStructureBtn");
 const viewerLigandList    = document.getElementById("viewerLigandList");
 const viewerResiduePicker = document.getElementById("viewerResiduePicker");
 const viewerDensityControls = document.getElementById("viewerDensityControls");
+
+// "Reload Viewer" button — recovers from a hung/frozen Mol* instance
+// (typically a stuck WebGL context after heavy density streaming) without
+// requiring a full page reload, which would otherwise wipe out the
+// Results tab and force re-running the whole analysis job. Created
+// dynamically (rather than added to index.html) so it inherits
+// loadStructureBtn's exact styling with zero risk of drifting from it;
+// if you'd rather have it live in the template markup, it's easy to move.
+const reloadViewerBtn = document.createElement("button");
+reloadViewerBtn.id = "reloadViewerBtn";
+reloadViewerBtn.type = "button";
+reloadViewerBtn.className = loadStructureBtn.className;
+reloadViewerBtn.textContent = "Reload Viewer";
+reloadViewerBtn.title = "Recreate the 3D viewer if it has frozen or stopped responding, without losing your analysis results.";
+reloadViewerBtn.style.marginLeft = "8px";
+loadStructureBtn.insertAdjacentElement("afterend", reloadViewerBtn);
 const isovalueSlider      = document.getElementById("isovalueSlider");
 const isovalueReadout     = document.getElementById("isovalueReadout");
 const atomRadiusSlider    = document.getElementById("atomRadiusSlider");
@@ -644,6 +660,72 @@ function finishLoading() {
   loadStructureBtn.textContent = "Load Structure";
 }
 
+// ── Reload Viewer ────────────────────────────────────────────────────────
+//
+// Mol* occasionally gets stuck — most often after heavy density-streaming
+// work (segmented 2Fo-Fc boxes clipped per-atom) — leaving the canvas
+// frozen/unresponsive. Previously the only fix was a full page reload,
+// which wipes the Results tab and forces re-running the whole analysis
+// job. This tears down and recreates just the Mol* plugin instance,
+// reusing the region/PDB state already sitting in memory (currentPdbId,
+// currentLigandRes, etc.) — nothing round-trips to the server, and
+// nothing else in the page is touched.
+//
+// Note: this restores *which* structure/ligand/binding-site/RTE was
+// loaded, but resets the viewer's own cosmetic state (layer/density
+// checkboxes, isovalue, atom-mask radius, focused residue) to the same
+// defaults a fresh "View 3D" click would use — same as loadMolstarStructure
+// always does. If you'd rather have those survive a reload too, they're
+// all cheap to snapshot/restore here; just say the word.
+async function reloadViewer() {
+  if (isLoadingStructure) return;
+  if (!currentPdbId) {
+    alert("No structure is currently loaded — nothing to reload.");
+    return;
+  }
+
+  // Snapshot the region/PDB state to restore after recreating the plugin.
+  const pdbid        = currentPdbId;
+  const ligandRes     = currentLigandRes;
+  const bsRes         = currentBsRes;
+  const rteRes        = currentRteRes;
+  const densityBoxes  = currentDensityBoxes;
+  const densityAtoms  = currentDensityAtoms;
+  const source        = currentSource;
+
+  reloadViewerBtn.disabled = true;
+  reloadViewerBtn.textContent = "Reloading…";
+
+  // Tear down the (possibly hung) plugin. dispose() forces WebGL context
+  // loss by default, which is exactly what's needed to actually free a
+  // stuck GPU/WebGL context — re-rendering into the same context can't do
+  // that, only a full dispose+recreate can. Wrapped in try/catch because a
+  // frozen instance is precisely the case where dispose() itself might
+  // throw or misbehave; either way we still want to proceed and rebuild.
+  try {
+    if (viewerInstance) {
+      viewerInstance.dispose();
+    }
+  } catch (err) {
+    console.warn("[VHELIBS] viewer.dispose() threw during reload (continuing anyway):", err);
+  } finally {
+    viewerInstance = null;
+    viewerInitPromise = null;
+    molContainer.innerHTML = "";
+  }
+
+  try {
+    await loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source);
+  } finally {
+    reloadViewerBtn.disabled = false;
+    reloadViewerBtn.textContent = "Reload Viewer";
+  }
+}
+
+reloadViewerBtn.addEventListener("click", () => {
+  reloadViewer().catch(err => console.error("[VHELIBS] Reload viewer failed:", err));
+});
+
 // RCSB download endpoints to try, in order of preference. For PDB-REDO
 // results we must NOT use the original RCSB coordinates: PDB-REDO
 // re-refines/rebuilds the model (peptide flips, rotamer changes, moved
@@ -771,7 +853,7 @@ function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
     }
   }
 
-  // A residue clicked in the "Components to examine" list: highlight it in
+  // A residue clicked in the "Residues to examine" list: highlight it in
   // white and point the camera at it, overriding the default ligand focus.
   if (focusResidue) {
     const sel = residueSelector(focusResidue);
@@ -957,7 +1039,7 @@ function populateResiduePicker(residues) {
   });
 });
 
-// Density region checkboxes (ligand / binding site / components to examine).
+// Density region checkboxes (ligand / binding site / residues to examine).
 ["chkDensityLigand", "chkDensityBS", "chkDensityRTE"].forEach((id, i) => {
   const key = ["ligand", "bs", "rte"][i];
   document.getElementById(id).addEventListener("change", function () {
