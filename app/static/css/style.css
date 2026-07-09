@@ -18,6 +18,11 @@
   --clr-bad:       #ef4444;
   --radius:        8px;
   --shadow:        0 4px 24px rgba(0,0,0,.4);
+  /* Real height is measured and set by app.js (updateHeaderHeightVar), since
+     the header can wrap onto two lines on narrower screens. This is just a
+     sane fallback for the brief moment before JS runs. */
+  --header-h:      65px;
+  --footer-h:      50px;
   font-size: 15px;
 }
 
@@ -276,14 +281,51 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 .error-reason { font-size: .875rem; color: var(--clr-muted); }
 
 /* ── 3D Viewer ────────────────────────────────────────── */
+/* Give the viewer row a hard, absolute height instead of a height:100%
+   chain through main-content/#viewer: percentage-height chains only
+   resolve if every ancestor in between ends up with a genuinely definite
+   computed height, which turned out not to hold up reliably here — the
+   row kept re-sizing itself to whatever the sidebar's content needed.
+   Computing the height directly from the viewport sidesteps that
+   entirely: it no longer depends on any ancestor's box, or on how much
+   content is currently inside .viewer-controls.
+   56px = .main-content's top+bottom padding (28px each, see .main-content
+   above). --header-h and --footer-h are measured live in app.js
+   (updateHeaderHeightVar) — the page has a <footer class="site-footer">
+   below <main>, which also eats into the flex column's available height
+   and was missing from the first version of this calc, leaving the row a
+   bit taller than what was actually available and forcing an unwanted
+   scrollbar inside .viewer-controls. */
 .viewer-layout {
-  display: grid; grid-template-columns: 260px 1fr; gap: 20px; height: 70vh; min-height: 400px;
+  display: grid; grid-template-columns: 260px 50vw; gap: 20px;
+  height: calc(100vh - var(--header-h) - var(--footer-h) - 56px);
+  min-height: 400px;
+  /* Break out of .main-content's 1200px cap so the viewport column can
+     actually claim half of the real browser width, instead of being
+     capped to a fraction of the centered 1200px content column. Centered
+     with justify-content so the sidebar+viewport pair sits in the middle
+     of the screen rather than hugging the left edge. */
+  width: 100vw; position: relative; left: 50%; margin-left: -50vw;
+  padding: 0 24px; box-sizing: border-box;
+  justify-content: center;
 }
 @media (max-width: 700px) {
   .viewer-layout { grid-template-columns: 1fr; height: auto; }
   .ngl-viewport { height: 400px; }
 }
-.viewer-controls { overflow-y: auto; }
+.viewer-controls {
+  overflow-y: auto;
+  /* Grid items default to min-height:auto, which refuses to shrink below
+     the item's own content size — so when this sidebar grows (residue
+     picker populated, density controls unhidden), it was pushing the
+     whole grid row taller instead of scrolling internally. That silently
+     desynced the mol* viewport, which JS had already pinned to a fixed
+     pixel height from before the sidebar grew. Pinning min-height:0 makes
+     this cell actually honor the row's height (driven by .viewer-layout),
+     so extra content scrolls in place and the row height — and therefore
+     the mol* viewport next to it — stays stable. */
+  min-height: 0;
+}
 .viewer-btn-row { display: flex; gap: 8px; margin-top: 10px; }
 .ngl-viewport {
   background: var(--clr-surface); border: 1px solid var(--clr-border);

@@ -4,6 +4,30 @@
 
 "use strict";
 
+// ── Viewer layout sizing ──────────────────────────────────
+// .viewer-layout (see style.css) sizes itself as
+// calc(100vh - var(--header-h) - var(--footer-h) - 56px) so the mol*
+// viewport gets a fixed, absolute height that doesn't depend on how much
+// content is currently inside the sidebar (.viewer-controls). Both
+// --header-h and --footer-h have CSS fallbacks, but header/footer height
+// isn't hardcoded in HTML/CSS (the header can wrap to two lines on narrow
+// viewports), so we measure them for real here and keep them in sync on
+// resize.
+const siteHeaderEl = document.querySelector(".site-header");
+const siteFooterEl = document.querySelector(".site-footer");
+
+function updateHeaderHeightVar() {
+  if (siteHeaderEl) {
+    document.documentElement.style.setProperty("--header-h", siteHeaderEl.getBoundingClientRect().height + "px");
+  }
+  if (siteFooterEl) {
+    document.documentElement.style.setProperty("--footer-h", siteFooterEl.getBoundingClientRect().height + "px");
+  }
+}
+
+updateHeaderHeightVar();
+window.addEventListener("resize", updateHeaderHeightVar);
+
 // ── Tab navigation ────────────────────────────────────────
 
 const tabLinks = document.querySelectorAll(".nav-link[data-tab]");
