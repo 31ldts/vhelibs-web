@@ -1,2 +1,9 @@
 **/__pycache__/
 /.venv
+/tests/tests.md
+/tests/test_app_init.py
+/tests/test_core_init.py
+/tests/test_routes.py
+conftest.py
+refactor.md
+/.pytest_cache
