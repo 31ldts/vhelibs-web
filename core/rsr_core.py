@@ -3,15 +3,6 @@
 #   Copyright 2011-2024 Adrià Cereto Massagué
 #   Migrated to web version.
 #
-#   Major changes vs rsr_analysis.py:
-#     - Removed CLI argument parsing (argparse).
-#     - Removed multiprocessing / multithreading pool (not needed for Flask).
-#     - Removed CSV/file output; returns dicts/lists suitable for JSON serialisation.
-#     - Removed Java/Jython/Cython imports; uses pure-Python PdbAtom.
-#     - Uses refactored core.* modules instead of top-level modules.
-#     - Replaced print() with logging.
-#     - Fixed SSL context hack removed (requests handles SSL properly).
-#
 import math
 import logging
 import concurrent.futures
@@ -376,6 +367,175 @@ def _fmt_reskey(comp_id, asym_id, seq_id):
     return format_reskey(comp_id, asym_id, seq_id)
 
 
+def _is_hetatm(residue):
+    """Decide whether a gemmi residue should be treated as a HETATM record.
+
+    Args:
+        residue (gemmi.Residue): The residue to classify.
+
+    Returns:
+        bool: ``True`` for non-polymer entities, waters, or residues of
+        unknown entity type (ligands / waters / unknowns); ``False`` for
+        polymer (protein/nucleic-acid) residues.
+
+    Raises:
+        None
+    """
+    return (residue.entity_type == gemmi.EntityType.NonPolymer or
+            residue.entity_type == gemmi.EntityType.Water or
+            not residue.entity_type)
+
+
+def _atom_record(atom, comp_id, asym_id, seq_id, is_hetatm):
+    """Build the mmCIF-style field dict expected by :class:`PdbAtom`.
+
+    Args:
+        atom (gemmi.Atom): The gemmi atom to convert.
+        comp_id (str): Parent residue's component (residue) identifier.
+        asym_id (str): Parent chain's identifier.
+        seq_id (int): Parent residue's sequence number.
+        is_hetatm (bool): Whether this atom belongs to a HETATM record, as
+            determined by :func:`_is_hetatm`.
+
+    Returns:
+        dict: Field dict suitable for :class:`core.pdb_atom.PdbAtom`.
+
+    Raises:
+        None
+    """
+    return {
+        "auth_atom_id":  atom.name,
+        "label_alt_id":  atom.altloc or ".",
+        "auth_comp_id":  comp_id,
+        "auth_asym_id":  asym_id,
+        "auth_seq_id":   str(seq_id),
+        "Cartn_x":       str(atom.pos.x),
+        "Cartn_y":       str(atom.pos.y),
+        "Cartn_z":       str(atom.pos.z),
+        "occupancy":     str(atom.occ),
+        "B_iso_or_equiv": str(atom.b_iso),
+        "type_symbol":   atom.element.name,
+        "group_PDB":     "HETATM" if is_hetatm else "ATOM",
+        "id":            str(atom.serial),
+    }
+
+
+def _file_atom(pdb_atom, comp_id, res_key, is_hetatm, inner_distance,
+               res_atom_dict, ligand_res_atom_dict, notligands):
+    """Classify a single, already-built atom into the right atom dict.
+
+    Protein/nucleic-acid atoms go to ``res_atom_dict`` (only when
+    ``inner_distance`` is truthy, since it means binding-site distances
+    will actually be computed). HETATM atoms are: dropped if they belong
+    to water; filed into ``res_atom_dict`` (and flagged in ``notligands``)
+    if their residue is a known blacklisted ligand or metal from
+    :mod:`core.cofactors`; otherwise treated as a candidate ligand atom in
+    ``ligand_res_atom_dict``.
+
+    Args:
+        pdb_atom (core.pdb_atom.PdbAtom): The atom to classify.
+        comp_id (str): Parent residue's component (residue) identifier.
+        res_key (str): Canonical residue key for the parent residue, as
+            produced by :func:`_fmt_reskey`.
+        is_hetatm (bool): Whether the parent residue is a HETATM record.
+        inner_distance (float): Falsy to skip filing non-HETATM atoms
+            (see :func:`parse_mmcif_file`).
+        res_atom_dict (dict): Mapping of residue key to a set of atoms;
+            updated in place.
+        ligand_res_atom_dict (dict): Mapping of residue key to a set of
+            ligand atoms; updated in place.
+        notligands (dict): Mapping of residue key to exclusion reason;
+            updated in place for blacklisted residues.
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
+    if not is_hetatm:
+        if inner_distance:
+            res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
+        return
+    if comp_id == "HOH":
+        return
+    if comp_id in cofactors.ligand_blacklist or comp_id in cofactors.metals:
+        res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
+        notligands[res_key] = "Blacklisted ligand"
+    else:
+        ligand_res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
+
+
+def _collect_atoms(structure, inner_distance):
+    """Walk every atom of a parsed structure, classifying and counting it.
+
+    Args:
+        structure (gemmi.Structure): The parsed mmCIF structure.
+        inner_distance (float): Passed through to :func:`_file_atom`; see
+            :func:`parse_mmcif_file`.
+
+    Returns:
+        tuple: ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands)``
+        — see :func:`parse_mmcif_file` for the meaning of each element.
+
+    Raises:
+        None
+    """
+    natoms = 0
+    res_atom_dict = {}
+    ligand_res_atom_dict = {}
+    notligands = {}
+
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                comp_id = residue.name          # auth_comp_id  (e.g. "ATP")
+                asym_id = chain.name            # auth_asym_id  (e.g. "A")
+                seq_id = residue.seqid.num      # auth_seq_id   (integer)
+                res_key = _fmt_reskey(comp_id, asym_id, seq_id)
+                is_hetatm = _is_hetatm(residue)
+
+                for atom in residue:
+                    pdb_atom = PdbAtom(_atom_record(atom, comp_id, asym_id, seq_id, is_hetatm))
+                    natoms += pdb_atom.occupancy
+                    _file_atom(pdb_atom, comp_id, res_key, is_hetatm, inner_distance,
+                              res_atom_dict, ligand_res_atom_dict, notligands)
+
+    return natoms, res_atom_dict, ligand_res_atom_dict, notligands
+
+
+def _extract_covalent_links(structure):
+    """Extract covalent/disulfide/metal-coordination connections.
+
+    Args:
+        structure (gemmi.Structure): The parsed mmCIF structure, exposing
+            connections via ``structure.connections``.
+
+    Returns:
+        list: ``(res1, res2, bond_length)`` tuples — see
+        :func:`parse_mmcif_file` for details.
+
+    Raises:
+        None
+    """
+    links = []
+    for conn in structure.connections:
+        if conn.type not in (gemmi.ConnectionType.Covale, gemmi.ConnectionType.Disulf,
+                             gemmi.ConnectionType.MetalC):
+            continue
+        p1 = conn.partner1
+        p2 = conn.partner2
+
+        res1 = _fmt_reskey(p1.res_id.name, p1.chain_name, p1.res_id.seqid.num)
+        res2 = _fmt_reskey(p2.res_id.name, p2.chain_name, p2.res_id.seqid.num)
+
+        # gemmi doesn't give us a pre-computed distance from the connection record;
+        # use 1714 (unknown) as the original code did for "?" values.
+        links.append((res1, res2, 1714.0))
+
+    return links
+
+
 def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
     """Parse an mmCIF file into atom and covalent-link dictionaries.
 
@@ -415,80 +575,14 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
         None: Parsing errors from gemmi are caught internally and
             returned as a 1-tuple error message instead of propagating.
     """
-    natoms = 0
-    res_atom_dict = {}
-    ligand_res_atom_dict = {}
-    notligands = {}
-    links = []
-
     logger.debug("Reading %s", mmciffilepath)
     try:
         structure = gemmi.read_structure(mmciffilepath)
     except Exception as exc:
         return (f"Could not parse mmCIF file {mmciffilepath}: {exc}",)
 
-    # ── Atom loop ──────────────────────────────────────────────────────────
-    for model in structure:
-        for chain in model:
-            for residue in chain:
-                comp_id  = residue.name          # auth_comp_id  (e.g. "ATP")
-                asym_id  = chain.name            # auth_asym_id  (e.g. "A")
-                seq_id   = residue.seqid.num     # auth_seq_id   (integer)
-                res_key  = _fmt_reskey(comp_id, asym_id, seq_id)
-
-                is_hetatm = residue.entity_type == gemmi.EntityType.NonPolymer or \
-                            residue.entity_type == gemmi.EntityType.Water or \
-                            not residue.entity_type  # ligands / waters / unknowns
-
-                for atom in residue:
-                    alt = atom.altloc or "."
-                    atom_dict = {
-                        "auth_atom_id":  atom.name,
-                        "label_alt_id":  alt,
-                        "auth_comp_id":  comp_id,
-                        "auth_asym_id":  asym_id,
-                        "auth_seq_id":   str(seq_id),
-                        "Cartn_x":       str(atom.pos.x),
-                        "Cartn_y":       str(atom.pos.y),
-                        "Cartn_z":       str(atom.pos.z),
-                        "occupancy":     str(atom.occ),
-                        "B_iso_or_equiv": str(atom.b_iso),
-                        "type_symbol":   atom.element.name,
-                        "group_PDB":     "HETATM" if is_hetatm else "ATOM",
-                        "id":            str(atom.serial),
-                    }
-
-                    pdb_atom = PdbAtom(atom_dict)
-                    natoms += pdb_atom.occupancy
-
-                    if not is_hetatm:
-                        # Protein / nucleic acid atom
-                        if inner_distance:
-                            res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
-                    else:
-                        if comp_id == "HOH":
-                            continue
-                        if comp_id in cofactors.ligand_blacklist or comp_id in cofactors.metals:
-                            res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
-                            notligands[res_key] = "Blacklisted ligand"
-                        else:
-                            ligand_res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
-
-    # ── struct_conn (covalent links) ───────────────────────────────────────
-    # gemmi exposes connections on the structure object
-    for conn in structure.connections:
-        if conn.type not in (gemmi.ConnectionType.Covale, gemmi.ConnectionType.Disulf,
-                             gemmi.ConnectionType.MetalC):
-            continue
-        p1 = conn.partner1
-        p2 = conn.partner2
-
-        res1 = _fmt_reskey(p1.res_id.name, p1.chain_name, p1.res_id.seqid.num)
-        res2 = _fmt_reskey(p2.res_id.name, p2.chain_name, p2.res_id.seqid.num)
-
-        # gemmi doesn't give us a pre-computed distance from the connection record;
-        # use 1714 (unknown) as the original code did for "?" values.
-        links.append((res1, res2, 1714.0))
+    natoms, res_atom_dict, ligand_res_atom_dict, notligands = _collect_atoms(structure, inner_distance)
+    links = _extract_covalent_links(structure)
 
     return natoms, res_atom_dict, ligand_res_atom_dict, notligands, links
 
@@ -496,6 +590,108 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
 # ---------------------------------------------------------------------------
 # Classification
 # ---------------------------------------------------------------------------
+
+def _score_residue_data(residue, residue_dict, cfg):
+    """Score the per-residue (RSCC/OWAB/occupancy/RSR) part of a residue.
+
+    Args:
+        residue (str): Residue key, used only for the reason string.
+        residue_dict (dict or None): Per-residue validation stats; see
+            :func:`classificate_residue`.
+        cfg (AnalysisConfig): Active analysis configuration.
+
+    Returns:
+        tuple: ``(score, reason)`` — the penalty contributed by
+        ``residue_dict`` alone, and a reason string if a severe (>=1000)
+        penalty applies, else ``None``.
+
+    Raises:
+        KeyError: If ``residue_dict`` is truthy but missing the
+            ``"occupancy"`` or ``"RSR"`` key.
+    """
+    if not residue_dict:
+        return 1000, f"No data for {residue}"
+
+    score = 0
+    reason = None
+
+    if cfg.rscc_min > residue_dict["RSCC"]:
+        score += 1
+    if cfg.check_owab:
+        owab = residue_dict.get("OWAB", 0)
+        if not (1 < owab < cfg.owab_max):
+            score += 1
+    occ = residue_dict["occupancy"]
+    if occ > 1.00:
+        score += 1000
+        reason = "Occupancy above 1"
+    elif occ < cfg.occupancy_min:
+        score += 1
+    rsr = residue_dict["RSR"]
+    if rsr > cfg.rsr_lower:
+        score += 1
+        if rsr > cfg.rsr_upper:
+            score += 1
+
+    return score, reason
+
+
+def _score_struc_data(residue, struc_dict, cfg):
+    """Score the structure-level (R-free/resolution/R-diff/DPI) part.
+
+    Args:
+        residue (str): Residue key, used only for reason strings.
+        struc_dict (dict or None): Structure-level stats; see
+            :func:`classificate_residue`.
+        cfg (AnalysisConfig): Active analysis configuration.
+
+    Returns:
+        tuple: ``(score, reason)`` — the penalty contributed by
+        ``struc_dict`` alone, and a reason string if a severe (>=1000)
+        penalty applies (the last one triggered, matching the original
+        sequential checks), else ``None``.
+
+    Raises:
+        None
+    """
+    if not struc_dict:
+        if cfg.use_dpi or cfg.use_rdiff or cfg.check_resolution:
+            return 1000, f"No structural data for {residue}"
+        return 0, None
+
+    score = 0
+    reason = None
+
+    rfree = struc_dict.get("rFree", 9999)
+    if rfree > cfg.rfree_max:
+        score += 1
+    if rfree < 0:
+        score += 1000
+        reason = f"No rFree data for {residue}"
+    if cfg.check_resolution:
+        resolution = struc_dict.get("Resolution", 10)
+        if resolution > cfg.resolution_max:
+            score += 1
+        if resolution == 10:
+            score += 1000
+            reason = f"No resolution data for {residue}"
+    if cfg.use_rdiff:
+        rdiff = struc_dict.get("Rdiff", float("nan"))
+        if math.isnan(rdiff):
+            score += 1000
+            reason = f"No reliable rFree/rWork data for {residue}"
+        elif rdiff > cfg.rdiff_max:
+            score += 1
+    if cfg.use_dpi:
+        dpi_val = struc_dict.get("DPI", -1)
+        if math.isnan(dpi_val) or dpi_val <= 0:
+            score += 1000
+            reason = f"No reliable structural data for {residue}"
+        elif dpi_val >= cfg.dpi_max:
+            score += 1
+
+    return score, reason
+
 
 def classificate_residue(residue, residue_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg):
     """Score a residue's electron-density fit and structural quality.
@@ -536,63 +732,14 @@ def classificate_residue(residue, residue_dict, struc_dict, good_rsr, dubious_rs
         KeyError: If ``residue_dict`` is truthy but missing the
             ``"occupancy"`` or ``"RSR"`` key.
     """
-    score = 0
-    reason = None
+    residue_score, residue_reason = _score_residue_data(residue, residue_dict, cfg)
+    struc_score, struc_reason = _score_struc_data(residue, struc_dict, cfg)
 
-    if not residue_dict:
-        score += 1000
-        reason = f"No data for {residue}"
-    else:
-        if cfg.rscc_min > residue_dict["RSCC"]:
-            score += 1
-        if cfg.check_owab:
-            owab = residue_dict.get("OWAB", 0)
-            if not (1 < owab < cfg.owab_max):
-                score += 1
-        occ = residue_dict["occupancy"]
-        if occ > 1.00:
-            score += 1000
-            reason = "Occupancy above 1"
-        elif occ < cfg.occupancy_min:
-            score += 1
-        rsr = residue_dict["RSR"]
-        if rsr > cfg.rsr_lower:
-            score += 1
-            if rsr > cfg.rsr_upper:
-                score += 1
-
-    if struc_dict:
-        rfree = struc_dict.get("rFree", 9999)
-        if rfree > cfg.rfree_max:
-            score += 1
-        if rfree < 0:
-            score += 1000
-            reason = f"No rFree data for {residue}"
-        if cfg.check_resolution:
-            resolution = struc_dict.get("Resolution", 10)
-            if resolution > cfg.resolution_max:
-                score += 1
-            if resolution == 10:
-                score += 1000
-                reason = f"No resolution data for {residue}"
-        if cfg.use_rdiff:
-            rdiff = struc_dict.get("Rdiff", float("nan"))
-            if math.isnan(rdiff):
-                score += 1000
-                reason = f"No reliable rFree/rWork data for {residue}"
-            elif rdiff > cfg.rdiff_max:
-                score += 1
-        if cfg.use_dpi:
-            dpi_val = struc_dict.get("DPI", -1)
-            if math.isnan(dpi_val) or dpi_val <= 0:
-                score += 1000
-                reason = f"No reliable structural data for {residue}"
-            elif dpi_val >= cfg.dpi_max:
-                score += 1
-    else:
-        if cfg.use_dpi or cfg.use_rdiff or cfg.check_resolution:
-            score += 1000
-            reason = f"No structural data for {residue}"
+    score = residue_score + struc_score
+    # struc_dict checks run after residue_dict checks in the original,
+    # sequential implementation, so a struc-level reason (if any) takes
+    # precedence over a residue-level one.
+    reason = struc_reason if struc_reason is not None else residue_reason
 
     if score == 0:
         good_rsr.add(residue)
@@ -637,6 +784,82 @@ def validate(residues, good_rsr, bad_rsr, dubious_rsr):
 # Ligand grouping
 # ---------------------------------------------------------------------------
 
+def _group_by_covalent_links(ligand_residues, links):
+    """Group ligand residues directly connected by a covalent link.
+
+    Args:
+        ligand_residues (iterable): Iterable of ligand residue key
+            strings.
+        links (list): ``(res1, res2, bond_length)`` tuples, as returned by
+            :func:`parse_mmcif_file`.
+
+    Returns:
+        list: A list of sets of residue keys — one set per connected
+        component found via covalent links, plus a singleton set for
+        every ligand residue not linked to another.
+
+    Raises:
+        None
+    """
+    ligands = []
+    ligand_links = [
+        (res1, res2, blen) for res1, res2, blen in links
+        if res1 in ligand_residues and res2 in ligand_residues
+    ]
+
+    while ligand_links:
+        for res1, res2, blen in ligand_links:
+            for ligand in ligands:
+                if res1 in ligand:
+                    ligand.add(res2)
+                    ligand_links.remove((res1, res2, blen))
+                    break
+                elif res2 in ligand:
+                    ligand.add(res1)
+                    ligand_links.remove((res1, res2, blen))
+                    break
+            else:
+                ligands.append({res1, res2})
+                ligand_links.remove((res1, res2, blen))
+                break
+
+    for lres in ligand_residues:
+        if not any(lres in lig for lig in ligands):
+            ligands.append({lres})
+
+    return ligands
+
+
+def _merge_overlapping_groups(ligands):
+    """Iteratively merge any groups in ``ligands`` that share a residue.
+
+    Args:
+        ligands (list): List of sets of residue keys, mutated in place
+            (and returned) until no two sets overlap.
+
+    Returns:
+        list: The same list, with overlapping sets merged.
+
+    Raises:
+        None
+    """
+    merged = True
+    while merged:
+        merged = False
+        for i, lig1 in enumerate(ligands):
+            for j, lig2 in enumerate(ligands):
+                if i >= j:
+                    continue
+                if lig1 & lig2:
+                    ligands[i] = lig1 | lig2
+                    ligands.pop(j)
+                    merged = True
+                    break
+            if merged:
+                break
+    return ligands
+
+
 def group_ligands(ligand_residues, links):
     """Group ligand residue keys into connected ligand components.
 
@@ -659,56 +882,167 @@ def group_ligands(ligand_residues, links):
     Raises:
         None
     """
-    ligands = []
-    linked_ligand_res = set()
-    ligand_links = []
-    for res1, res2, blen in links:
-        if res1 in ligand_residues and res2 in ligand_residues:
-            ligand_links.append((res1, res2, blen))
-            linked_ligand_res.update([res1, res2])
-
-    while ligand_links:
-        for res1, res2, blen in ligand_links:
-            for ligand in ligands:
-                if res1 in ligand:
-                    ligand.add(res2)
-                    ligand_links.remove((res1, res2, blen))
-                    break
-                elif res2 in ligand:
-                    ligand.add(res1)
-                    ligand_links.remove((res1, res2, blen))
-                    break
-            else:
-                ligands.append({res1, res2})
-                ligand_links.remove((res1, res2, blen))
-                break
-
-    for lres in ligand_residues:
-        if not any(lres in lig for lig in ligands):
-            ligands.append({lres})
-
-    # Merge overlapping sets
-    merged = True
-    while merged:
-        merged = False
-        for i, lig1 in enumerate(ligands):
-            for j, lig2 in enumerate(ligands):
-                if i >= j:
-                    continue
-                if lig1 & lig2:
-                    ligands[i] = lig1 | lig2
-                    ligands.pop(j)
-                    merged = True
-                    break
-            if merged:
-                break
-
-    return ligands
+    ligands = _group_by_covalent_links(ligand_residues, links)
+    return _merge_overlapping_groups(ligands)
 
 
 # ---------------------------------------------------------------------------
 # Binding-site extraction
 # ---------------------------------------------------------------------------
+
+def _covalent_disqualification(ligandres):
+    """Return a disqualification reason for a very close (<2.1 Å) contact.
+
+    Args:
+        ligandres (str): Residue key of the ligand residue in close
+            contact.
+
+    Returns:
+        str or None: A reason string if ``ligandres``'s component is a
+        known blacklisted ligand or metal (per :mod:`core.cofactors`),
+        else ``None``.
+
+    Raises:
+        None
+    """
+    hetid = ligandres[:3].strip()
+    if hetid in cofactors.ligand_blacklist:
+        return "Covalently bound to a blacklisted ligand"
+    if hetid in cofactors.metals:
+        return "Covalently bound to the sequence"
+    return None
+
+
+def _residues_in_contact_with_ligand_atoms(ligandres, ligand_atoms, res_atom_dict, cfg, notligands):
+    """Find non-ligand residues within contact distance of a ligand residue.
+
+    Also detects covalent disqualification of ``ligandres`` (recorded in
+    ``notligands``) when a very close contact with a blacklisted ligand or
+    metal residue is found.
+
+    Args:
+        ligandres (str): Residue key of the ligand residue being checked.
+        ligand_atoms (iterable): Atoms of ``ligandres``.
+        res_atom_dict (dict): Mapping of residue key to protein/cofactor
+            atoms to check contacts against.
+        cfg (AnalysisConfig): Supplies ``inner_distance``.
+        notligands (dict): Updated in place with a disqualification
+            reason if one is found.
+
+    Returns:
+        tuple: ``(contact_residues, reason)``. If ``reason`` is not
+        ``None``, ``ligandres`` must be dropped entirely and
+        ``contact_residues`` is empty; otherwise ``reason`` is ``None``
+        and ``contact_residues`` holds every residue key found in contact.
+
+    Raises:
+        None
+    """
+    contact_residues = set()
+    for res, atoms in res_atom_dict.items():
+        for atom in atoms:
+            for ligandatom in ligand_atoms:
+                dist = atom | ligandatom
+                if dist <= cfg.inner_distance:
+                    if dist < 2.1:
+                        reason = _covalent_disqualification(ligandres)
+                        if reason:
+                            notligands[ligandres] = reason
+                            return set(), reason
+                    contact_residues.add(atom.residue)
+                    break
+    return contact_residues, None
+
+
+def _other_ligand_contacts(ligandres, ligand_atoms, ligand, ligands, ligand_res_atom_dict, cfg):
+    """Find residues from *other* ligand groups within contact distance.
+
+    Args:
+        ligandres (str): Residue key of the ligand residue being checked
+            (kept only for parity with the caller's per-residue loop; not
+            used directly since ``ligand_atoms`` is already resolved).
+        ligand_atoms (iterable): Atoms of ``ligandres``.
+        ligand (set): The current ligand group, excluded from the search.
+        ligands (list): All ligand groups in the structure.
+        ligand_res_atom_dict (dict): Mapping of residue key to ligand
+            atoms.
+        cfg (AnalysisConfig): Supplies ``inner_distance``.
+
+    Returns:
+        set: Residue keys belonging to other ligand groups found within
+        contact distance.
+
+    Raises:
+        None
+    """
+    contacts = set()
+    for other_lig in ligands:
+        if other_lig == ligand:
+            continue
+        for lres in other_lig:
+            for latom in ligand_res_atom_dict[lres]:
+                for ligandatom in ligand_atoms:
+                    if (latom | ligandatom) <= cfg.inner_distance:
+                        contacts.add(lres)
+                        break
+    return contacts
+
+
+def _low_occupancy_residues(ligand, edd_dict):
+    """Return ligand residue keys with occupancy below 1 (or missing data).
+
+    Args:
+        ligand (set): Ligand residue keys to check.
+        edd_dict (dict): Mapping of residue key to validation stats.
+
+    Returns:
+        list: Residue keys whose recorded (or default ``0``) occupancy is
+        below ``1``.
+
+    Raises:
+        None
+    """
+    return [lr for lr in ligand
+            if edd_dict.get(lr, {"occupancy": 0})["occupancy"] < 1]
+
+
+def _score_binding_site_residues(inner_binding_site, res_atom_dict, edd_dict, struc_dict,
+                                 good_rsr, dubious_rsr, bad_rsr, cfg, bad_occupancy):
+    """Score every binding-site residue and track its low-occupancy status.
+
+    Args:
+        inner_binding_site (set): Binding-site residue keys to score.
+        res_atom_dict (dict): Mapping of residue key to atoms, used to
+            detect residues with no atom data.
+        edd_dict (dict): Mapping of residue key to validation stats.
+        struc_dict (dict): Structure-level stats.
+        good_rsr (set): Updated in place via :func:`classificate_residue`.
+        dubious_rsr (set): Updated in place via
+            :func:`classificate_residue`.
+        bad_rsr (set): Updated in place via :func:`classificate_residue`.
+        cfg (AnalysisConfig): Active analysis configuration.
+        bad_occupancy (list): Extended in place with binding-site residues
+            that have missing data or occupancy below 1.
+
+    Returns:
+        int: The maximum per-residue score among ``inner_binding_site``.
+
+    Raises:
+        None
+    """
+    bs_score = 0
+    for res in inner_binding_site:
+        resatoms = res_atom_dict.get(res)
+        residue_dict = edd_dict.get(res)
+        if not (residue_dict and resatoms):
+            bad_occupancy.append(res)
+        elif residue_dict.get("occupancy", 1) < 1:
+            bad_occupancy.append(res)
+        score, _ = classificate_residue(res, residue_dict, struc_dict,
+                                        good_rsr, dubious_rsr, bad_rsr, cfg)
+        bs_score = max(bs_score, score)
+    return bs_score
+
 
 def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
                      pdbid, res_atom_dict, ligands, ligand_res_atom_dict,
@@ -781,46 +1115,20 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
     for ligandres in ligand:
         if ligandres in notligands:
             return [notligands[ligandres]]
-        for res, atoms in res_atom_dict.items():
-            for atom in atoms:
-                for ligandatom in ligand_res_atom_dict[ligandres]:
-                    dist = atom | ligandatom
-                    if dist <= cfg.inner_distance:
-                        if dist < 2.1:
-                            hetid = ligandres[:3].strip()
-                            if hetid in cofactors.ligand_blacklist:
-                                reason = "Covalently bound to a blacklisted ligand"
-                                notligands[ligandres] = reason
-                                return [reason]
-                            elif hetid in cofactors.metals:
-                                reason = "Covalently bound to the sequence"
-                                notligands[ligandres] = reason
-                                return [reason]
-                        inner_binding_site.add(atom.residue)
-                        break
-        for other_lig in ligands:
-            if other_lig == ligand:
-                continue
-            for lres in other_lig:
-                for latom in ligand_res_atom_dict[lres]:
-                    for ligandatom in ligand_res_atom_dict[ligandres]:
-                        if (latom | ligandatom) <= cfg.inner_distance:
-                            inner_binding_site.add(lres)
-                            break
 
-    bad_occupancy = [lr for lr in ligand
-                     if edd_dict.get(lr, {"occupancy": 0})["occupancy"] < 1]
-    bs_score = 0
-    for res in inner_binding_site:
-        resatoms = res_atom_dict.get(res)
-        residue_dict = edd_dict.get(res)
-        if not (residue_dict and resatoms):
-            bad_occupancy.append(res)
-        elif residue_dict.get("occupancy", 1) < 1:
-            bad_occupancy.append(res)
-        score, _ = classificate_residue(res, residue_dict, struc_dict,
-                                        good_rsr, dubious_rsr, bad_rsr, cfg)
-        bs_score = max(bs_score, score)
+        ligand_atoms = ligand_res_atom_dict[ligandres]
+        contacts, reason = _residues_in_contact_with_ligand_atoms(
+            ligandres, ligand_atoms, res_atom_dict, cfg, notligands)
+        if reason:
+            return [reason]
+        inner_binding_site |= contacts
+        inner_binding_site |= _other_ligand_contacts(
+            ligandres, ligand_atoms, ligand, ligands, ligand_res_atom_dict, cfg)
+
+    bad_occupancy = _low_occupancy_residues(ligand, edd_dict)
+    bs_score = _score_binding_site_residues(
+        inner_binding_site, res_atom_dict, edd_dict, struc_dict,
+        good_rsr, dubious_rsr, bad_rsr, cfg, bad_occupancy)
 
     rte = (inner_binding_site | ligand) - good_rsr
     ligandgood = validate(ligand, good_rsr, bad_rsr, dubious_rsr)
@@ -831,6 +1139,403 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
 # ---------------------------------------------------------------------------
 # Main per-PDB entry point
 # ---------------------------------------------------------------------------
+
+def _fetch_structure_data(pdbid, cfg):
+    """Fetch structure-level refinement stats and per-residue validation data.
+
+    Sources from PDB-REDO or PDBe/RCSB depending on ``cfg.pdb_redo``.
+
+    Args:
+        pdbid (str): Lower-cased PDB identifier.
+        cfg (AnalysisConfig): Supplies ``pdb_redo``.
+
+    Returns:
+        tuple: ``(pdbid_stats, edd_dict, error)``. If fetching failed,
+        ``error`` is a human-readable message and the other two elements
+        are ``None``; otherwise ``error`` is ``None``.
+
+    Raises:
+        None
+    """
+    if cfg.pdb_redo:
+        pdbid_stats = pdb_redo_utils.get_pdbredo_data(pdbid)
+        if not pdbid_stats:
+            return None, None, "Not in PDB_REDO"
+        edd_dict = pdb_redo_utils.get_ED_data(pdbid)
+        if not edd_dict:
+            return None, None, "No PDB-REDO ED data available"
+        return pdbid_stats, edd_dict, None
+
+    report = pdb_utils.get_custom_report(pdbid)
+    # report may be empty for NMR/cryo-EM — continue with empty stats;
+    # rFree will be 9999, adding to score, but analysis still runs.
+    pdbid_stats = report.get(pdbid.upper(), {}) if report else {}
+    if not pdbid_stats:
+        logger.warning("%s: no refinement stats; proceeding without R-factor data", pdbid)
+    _, edd_dict = eds_utils.get_EDS(pdbid)
+    if not edd_dict:
+        return None, None, "No EDM/validation data available (may not be an X-ray entry)"
+    return pdbid_stats, edd_dict, None
+
+
+def _build_struc_dict(pdbid_stats, cfg):
+    """Build the structure-level stats dict used for scoring.
+
+    Args:
+        pdbid_stats (dict): Raw structure/refinement stats, as returned by
+            :func:`_fetch_structure_data`.
+        cfg (AnalysisConfig): Determines which optional fields to include.
+
+    Returns:
+        dict: Structure-level stats with at least ``"rFree"``/``"rWork"``,
+        plus ``"Resolution"``/``"Rdiff"`` if enabled by ``cfg``.
+
+    Raises:
+        None
+    """
+    struc_dict = {
+        "rFree": pdbid_stats.get("rFree", float("nan")),
+        "rWork": pdbid_stats.get("rWork", float("nan")),
+    }
+    if cfg.check_resolution:
+        struc_dict["Resolution"] = pdbid_stats.get("refinementResolution", 10)
+    if cfg.use_rdiff:
+        struc_dict["Rdiff"] = struc_dict["rFree"] - struc_dict["rWork"]
+    return struc_dict
+
+
+def _add_dpi(struc_dict, pdbid_stats, natoms, cfg):
+    """Add a ``"DPI"`` entry to ``struc_dict`` in place, if enabled.
+
+    Args:
+        struc_dict (dict): Updated in place with a ``"DPI"`` key.
+        pdbid_stats (dict): Raw structure/refinement stats, used for unit
+            cell dimensions and reflection count.
+        natoms (float): Occupancy-weighted atom count, as returned by
+            :func:`parse_mmcif_file`.
+        cfg (AnalysisConfig): Only acts when ``cfg.use_dpi`` is ``True``.
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
+    if not cfg.use_dpi:
+        return
+    rfl = pdbid_stats.get("nreflections", 0)
+    if not rfl:
+        struc_dict["DPI"] = float("nan")
+        return
+    struc_dict["DPI"] = _dpi(
+        pdbid_stats.get("lengthOfUnitCellLatticeA", 0),
+        pdbid_stats.get("lengthOfUnitCellLatticeB", 0),
+        pdbid_stats.get("lengthOfUnitCellLatticeC", 0),
+        pdbid_stats.get("unitCellAngleAlpha", 0),
+        pdbid_stats.get("unitCellAngleBeta", 0),
+        pdbid_stats.get("unitCellAngleGamma", 0),
+        natoms, rfl, struc_dict["rFree"],
+    )
+
+
+def _fill_occupancy_gaps(edd_dict, res_atom_dict, ligand_res_atom_dict):
+    """Fill in missing per-residue occupancy from atom-level data.
+
+    Residues with no ``"occupancy"`` entry get one derived from the
+    average occupancy of their known atoms; residues with neither are
+    dropped entirely, since they cannot be scored.
+
+    Args:
+        edd_dict (dict): Mapping of residue key to validation stats
+            (possibly with whitespace-padded keys).
+        res_atom_dict (dict): Mapping of residue key to protein/cofactor
+            atoms.
+        ligand_res_atom_dict (dict): Mapping of residue key to ligand
+            atoms.
+
+    Returns:
+        dict: A new dict with residue keys stripped of surrounding
+        whitespace and entries with no usable occupancy source removed.
+
+    Raises:
+        None
+    """
+    bad_res = set()
+    for residue, rdict in edd_dict.items():
+        residue = residue.strip()
+        if "occupancy" not in rdict:
+            atoms = res_atom_dict.get(residue) or ligand_res_atom_dict.get(residue)
+            if atoms:
+                rdict["occupancy"] = _average_occ(atoms)
+            else:
+                bad_res.add(residue)
+    return {k.strip(): v for k, v in edd_dict.items() if k.strip() not in bad_res}
+
+
+def _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, notligands):
+    """Disqualify ligand residues covalently bound to the protein/metals.
+
+    Repeatedly scans ``links`` (mutated in place), removing links that
+    connect two already-non-ligand residues, and disqualifying (moving
+    into ``res_atom_dict``/``notligands``) any ligand residue that's
+    covalently (< 2.1 Å or unknown length) bound to the sequence, a metal,
+    or a blacklisted ligand.
+
+    Args:
+        links (list): ``(res1, res2, bond_length)`` tuples; mutated in
+            place.
+        res_atom_dict (dict): Mapping of residue key to protein/cofactor
+            atoms; disqualified ligand residues are added here.
+        ligand_res_atom_dict (dict): Mapping of residue key to ligand
+            atoms; disqualified ligand residues are popped from here.
+        notligands (dict): Mapping of residue key to exclusion reason;
+            updated in place.
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
+    all_links_parsed = False
+    while not all_links_parsed:
+        for res1, res2, blen in list(links):
+            checklink = sum([res1 in res_atom_dict, res2 in res_atom_dict])
+            if checklink == 2:
+                links.remove((res1, res2, blen))
+                break
+            ligres = None
+            if res1 in res_atom_dict:
+                ligres = res2
+            elif res2 in res_atom_dict:
+                ligres = res1
+            if checklink == 1:
+                if blen and blen >= 2.1:
+                    continue
+                if (res1[:3].strip() in cofactors.metals) or (res2[:3].strip() in cofactors.metals):
+                    continue
+                if ligres:
+                    if (res1[:3].strip() in cofactors.ligand_blacklist) or \
+                       (res2[:3].strip() in cofactors.ligand_blacklist):
+                        notligands[ligres] = "Covalently bound to a blacklisted ligand"
+                    else:
+                        notligands[ligres] = "Covalently bound to the sequence"
+                    links.remove((res1, res2, blen))
+                    if ligres in ligand_res_atom_dict:
+                        res_atom_dict[ligres] = ligand_res_atom_dict.pop(ligres)
+                    break
+        else:
+            all_links_parsed = True
+
+
+def _score_ligands(ligands, edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, notligands):
+    """Score every residue of every ligand group, pruning disqualified ones.
+
+    Residues whose per-residue score indicates a severe disqualification
+    (e.g. missing data, occupancy > 1) are discarded from their ligand
+    group and recorded in ``notligands``.
+
+    Args:
+        ligands (list): List of ligand groups (sets of residue keys),
+            mutated in place (disqualified residues discarded).
+        edd_dict (dict): Mapping of residue key to validation stats.
+        struc_dict (dict): Structure-level stats.
+        good_rsr (set): Updated in place via :func:`classificate_residue`.
+        dubious_rsr (set): Updated in place via
+            :func:`classificate_residue`.
+        bad_rsr (set): Updated in place via :func:`classificate_residue`.
+        cfg (AnalysisConfig): Active analysis configuration.
+        notligands (dict): Updated in place with disqualification reasons.
+
+    Returns:
+        list: Maximum per-residue score for each ligand group, in the
+        same order as ``ligands``.
+
+    Raises:
+        None
+    """
+    ligand_scores = []
+    for ligand in ligands:
+        ligand_score = 0
+        for res in list(ligand):
+            residue_dict = edd_dict.get(res)
+            score, reason = classificate_residue(
+                res, residue_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg)
+            if reason and score >= 1000:
+                notligands[res] = reason
+                ligand.discard(res)
+            ligand_score = max(ligand_score, score)
+        ligand_scores.append(ligand_score)
+    return ligand_scores
+
+
+def _compute_binding_sites(ligands, ligand_scores, good_rsr, bad_rsr, dubious_rsr,
+                           pdbid, res_atom_dict, ligand_res_atom_dict,
+                           edd_dict, struc_dict, notligands, cfg):
+    """Compute the binding site for every non-empty ligand group.
+
+    Ligands disqualified by :func:`get_binding_site` (a 1-element result)
+    have their atoms folded back into ``res_atom_dict`` and are recorded
+    in ``notligands`` rather than being carried forward for display.
+
+    Args:
+        ligands (list): Ligand groups, as produced by
+            :func:`_score_ligands`.
+        ligand_scores (list): Maximum per-residue score per ligand group,
+            parallel to ``ligands``.
+        good_rsr (set): Passed through to :func:`get_binding_site`.
+        bad_rsr (set): Passed through to :func:`get_binding_site`.
+        dubious_rsr (set): Passed through to :func:`get_binding_site`.
+        pdbid (str): Passed through to :func:`get_binding_site`.
+        res_atom_dict (dict): Mapping of residue key to protein/cofactor
+            atoms; disqualified ligands are folded into this in place.
+        ligand_res_atom_dict (dict): Mapping of residue key to ligand
+            atoms; disqualified ligands are popped from this in place.
+        edd_dict (dict): Mapping of residue key to validation stats.
+        struc_dict (dict): Structure-level stats.
+        notligands (dict): Updated in place for disqualified ligands.
+        cfg (AnalysisConfig): Active analysis configuration.
+
+    Returns:
+        list: One :func:`get_binding_site`-style success tuple per
+        surviving ligand.
+
+    Raises:
+        None
+    """
+    ligand_bs_list = []
+    for ligand, ligand_score in zip(ligands, ligand_scores):
+        if not ligand:
+            continue
+        bs = get_binding_site(
+            ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
+            pdbid, res_atom_dict, ligands, ligand_res_atom_dict,
+            edd_dict, struc_dict, notligands, cfg)
+        if len(bs) == 1:
+            for lr in ligand:
+                res_atom_dict[lr] = ligand_res_atom_dict.pop(lr, set())
+                notligands.setdefault(lr, bs[0])
+            continue
+        ligand_bs_list.append(bs)
+    return ligand_bs_list
+
+
+def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source):
+    """Convert one :func:`get_binding_site` result tuple into a JSON-safe dict.
+
+    Residues belonging to any *other* ligand present in the structure
+    (e.g. a second binding site close enough to have been pulled in by
+    :func:`get_binding_site`'s cross-ligand check) still count towards
+    this ligand's scoring, but are excluded here from every field sent to
+    the 3D viewer, so the viewer only ever shows the ligand actually under
+    study for this entry — any other ligand present stays hidden.
+
+    Args:
+        data (tuple): A success tuple as returned by
+            :func:`get_binding_site`.
+        all_ligand_keys (set): Every residue key belonging to any ligand
+            group in the structure (after per-residue pruning).
+        res_atom_dict (dict): Mapping of residue key to protein/cofactor
+            atoms, used for density boxes/atoms.
+        ligand_res_atom_dict (dict): Mapping of residue key to ligand
+            atoms, used for density boxes/atoms.
+        source (str): ``"PDB"`` or ``"PDB_REDO"``, echoed into the result.
+
+    Returns:
+        dict or None: The serialized ligand result, or ``None`` if
+        ``data`` has no ligand residues left to report.
+
+    Raises:
+        None
+    """
+    ligandresidues, binding_site, rte, ligandgood, bsgood, bad_occupancy, lig_score, bs_score = data
+    if not ligandresidues:
+        return None
+
+    other_ligand_residues = all_ligand_keys - set(ligandresidues)
+    display_binding_site = [r for r in binding_site if r not in other_ligand_residues]
+    display_rte = [r for r in rte if r not in other_ligand_residues]
+    display_bad_occupancy = [r for r in bad_occupancy if r not in other_ligand_residues]
+
+    return {
+        "ligand_residues": sorted(ligandresidues),
+        "binding_site_residues": sorted(display_binding_site),
+        "residues_to_examine": sorted(display_rte),
+        "ligand_quality": ligandgood,
+        "binding_site_quality": bsgood,
+        "source": source,
+        "ligand_score": lig_score,
+        "binding_site_score": bs_score,
+        "low_occupancy": sorted(display_bad_occupancy),
+        # Other ligand(s) present in this structure that are NOT shown
+        # in the 3D viewer for this entry. Purely informational for the
+        # UI (e.g. "2 other ligand(s) hidden") — not used for scoring.
+        "other_ligands": sorted(other_ligand_residues),
+        # Padded bounding boxes for on-demand, segmented density
+        # display in the 3D viewer (see core.eds_utils.edm_box_url).
+        # None if a region has no atoms (shouldn't normally happen for
+        # ligand_residues, but binding_site/rte can theoretically be
+        # empty for a solvent-exposed ligand with distance=0).
+        "density_boxes": {
+            "ligand": residues_bbox(ligandresidues, res_atom_dict, ligand_res_atom_dict),
+            "binding_site": residues_bbox(display_binding_site, res_atom_dict, ligand_res_atom_dict),
+            "residues_to_examine": residues_bbox(display_rte, res_atom_dict, ligand_res_atom_dict),
+        },
+        # Per-atom coordinates used to actually differentiate the
+        # density shown for each region (see residue_atom_centers
+        # docstring) — the boxes above only size the download window.
+        "density_atoms": {
+            "ligand": residue_atom_centers(ligandresidues, res_atom_dict, ligand_res_atom_dict),
+            "binding_site": residue_atom_centers(display_binding_site, res_atom_dict, ligand_res_atom_dict),
+            "residues_to_examine": residue_atom_centers(display_rte, res_atom_dict, ligand_res_atom_dict),
+        },
+    }
+
+
+def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
+                  res_atom_dict, ligand_res_atom_dict, cfg):
+    """Assemble the final JSON-serializable result dict for a PDB entry.
+
+    Args:
+        pdbid (str): The analysed (lower-cased) PDB identifier.
+        ligand_bs_list (list): Success tuples from
+            :func:`_compute_binding_sites`.
+        all_ligand_keys (set): Every residue key belonging to any ligand
+            group in the structure.
+        notligands (dict): Mapping of residue key to exclusion reason.
+        struc_dict (dict): Structure-level stats (may contain ``nan``).
+        res_atom_dict (dict): Mapping of residue key to protein/cofactor
+            atoms.
+        ligand_res_atom_dict (dict): Mapping of residue key to ligand
+            atoms.
+        cfg (AnalysisConfig): Supplies ``pdb_redo`` for the ``"source"``
+            field.
+
+    Returns:
+        dict: See :func:`parse_binding_site` for the shape of a success
+        result.
+
+    Raises:
+        None
+    """
+    source = "PDB_REDO" if cfg.pdb_redo else "PDB"
+
+    result_ligands = []
+    for data in ligand_bs_list:
+        serialized = _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source)
+        if serialized:
+            result_ligands.append(serialized)
+
+    safe_struc = {k: (v if not (isinstance(v, float) and math.isnan(v)) else None)
+                  for k, v in struc_dict.items()}
+
+    return {
+        "pdbid": pdbid,
+        "ligands": result_ligands,
+        "rejected": {k: str(v) for k, v in notligands.items()},
+        "struc_dict": safe_struc,
+    }
+
 
 def parse_binding_site(pdbid, cfg=None):
     """Analyse a single PDB entry for ligand binding-site quality.
@@ -874,33 +1579,12 @@ def parse_binding_site(pdbid, cfg=None):
     pdbid = pdbid.lower()
     logger.info("Analysing %s", pdbid)
 
-    # --- Fetch structure-level stats ---
-    if cfg.pdb_redo:
-        pdbid_stats = pdb_redo_utils.get_pdbredo_data(pdbid)
-        if not pdbid_stats:
-            return {"pdbid": pdbid, "error": "Not in PDB_REDO"}
-        edd_dict = pdb_redo_utils.get_ED_data(pdbid)
-        if not edd_dict:
-            return {"pdbid": pdbid, "error": "No PDB-REDO ED data available"}
-    else:
-        report = pdb_utils.get_custom_report(pdbid)
-        # report may be empty for NMR/cryo-EM — continue with empty stats;
-        # rFree will be 9999, adding to score, but analysis still runs.
-        pdbid_stats = report.get(pdbid.upper(), {}) if report else {}
-        if not pdbid_stats:
-            logger.warning("%s: no refinement stats; proceeding without R-factor data", pdbid)
-        pdbdict, edd_dict = eds_utils.get_EDS(pdbid)
-        if not edd_dict:
-            return {"pdbid": pdbid, "error": "No EDM/validation data available (may not be an X-ray entry)"}
+    # --- Fetch structure-level stats & validation data ---
+    pdbid_stats, edd_dict, error = _fetch_structure_data(pdbid, cfg)
+    if error:
+        return {"pdbid": pdbid, "error": error}
 
-    struc_dict = {
-        "rFree": pdbid_stats.get("rFree", float("nan")),
-        "rWork": pdbid_stats.get("rWork", float("nan")),
-    }
-    if cfg.check_resolution:
-        struc_dict["Resolution"] = pdbid_stats.get("refinementResolution", 10)
-    if cfg.use_rdiff:
-        struc_dict["Rdiff"] = struc_dict["rFree"] - struc_dict["rWork"]
+    struc_dict = _build_struc_dict(pdbid_stats, cfg)
 
     # --- Download & parse mmCIF ---
     pdbfilepath = pdb_utils.get_pdb_file(pdbid.upper(), cfg.pdb_redo)
@@ -910,86 +1594,23 @@ def parse_binding_site(pdbid, cfg=None):
     parsed = parse_mmcif_file(pdbfilepath, pdbid, cfg.inner_distance)
     if len(parsed) == 1:
         return {"pdbid": pdbid, "error": str(parsed[0])}
-
     natoms, res_atom_dict, ligand_res_atom_dict, notligands, links = parsed
 
-    if cfg.use_dpi:
-        rfl = pdbid_stats.get("nreflections", 0)
-        if rfl:
-            struc_dict["DPI"] = _dpi(
-                pdbid_stats.get("lengthOfUnitCellLatticeA", 0),
-                pdbid_stats.get("lengthOfUnitCellLatticeB", 0),
-                pdbid_stats.get("lengthOfUnitCellLatticeC", 0),
-                pdbid_stats.get("unitCellAngleAlpha", 0),
-                pdbid_stats.get("unitCellAngleBeta", 0),
-                pdbid_stats.get("unitCellAngleGamma", 0),
-                natoms, rfl, struc_dict["rFree"],
-            )
-        else:
-            struc_dict["DPI"] = float("nan")
+    _add_dpi(struc_dict, pdbid_stats, natoms, cfg)
 
-    # --- Fill occupancy gaps ---
-    bad_res = set()
-    for residue, rdict in edd_dict.items():
-        residue = residue.strip()
-        if "occupancy" not in rdict:
-            atoms = res_atom_dict.get(residue) or ligand_res_atom_dict.get(residue)
-            if atoms:
-                rdict["occupancy"] = _average_occ(atoms)
-            else:
-                bad_res.add(residue)
-    edd_dict = {k.strip(): v for k, v in edd_dict.items() if k.strip() not in bad_res}
-
-    # --- Prune covalently bound ligands ---
-    all_links_parsed = False
-    while not all_links_parsed:
-        for res1, res2, blen in list(links):
-            checklink = sum([res1 in res_atom_dict, res2 in res_atom_dict])
-            if checklink == 2:
-                links.remove((res1, res2, blen))
-                break
-            sres = ligres = None
-            if res1 in res_atom_dict:
-                sres, ligres = res1, res2
-            elif res2 in res_atom_dict:
-                sres, ligres = res2, res1
-            if checklink == 1:
-                if blen and blen >= 2.1:
-                    continue
-                if (res1[:3].strip() in cofactors.metals) or (res2[:3].strip() in cofactors.metals):
-                    continue
-                if ligres:
-                    if (res1[:3].strip() in cofactors.ligand_blacklist) or \
-                       (res2[:3].strip() in cofactors.ligand_blacklist):
-                        notligands[ligres] = "Covalently bound to a blacklisted ligand"
-                    else:
-                        notligands[ligres] = "Covalently bound to the sequence"
-                    links.remove((res1, res2, blen))
-                    if ligres in ligand_res_atom_dict:
-                        res_atom_dict[ligres] = ligand_res_atom_dict.pop(ligres)
-                    break
-        else:
-            all_links_parsed = True
+    # --- Fill occupancy gaps & prune covalently bound ligands ---
+    edd_dict = _fill_occupancy_gaps(edd_dict, res_atom_dict, ligand_res_atom_dict)
+    _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, notligands)
 
     if not ligand_res_atom_dict:
         return {"pdbid": pdbid, "error": "No ligands found"}
 
+    # --- Group, score and locate binding sites ---
     good_rsr, dubious_rsr, bad_rsr = set(), set(), set()
     ligands = group_ligands(ligand_res_atom_dict.keys(), links)
 
-    # Score individual ligand residues
-    ligand_scores = []
-    for ligand in ligands:
-        ligand_score = 0
-        for res in list(ligand):
-            residue_dict = edd_dict.get(res)
-            score, reason = classificate_residue(
-                res, residue_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg)
-            if reason and score >= 1000:
-                notligands[res] = reason
-                ligand.discard(res)
-            ligand_score = max(ligand_score, score)
-        ligand_scores.append(ligand_score)
+    ligand_scores = _score_ligands(
+        ligands, edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, notligands)
 
     # Snapshot of every residue belonging to *any* ligand group in this
     # structure, taken after the per-residue pruning above. Used below to
@@ -1001,85 +1622,15 @@ def parse_binding_site(pdbid, cfg=None):
     # ligand actually under study for that entry.
     all_ligand_keys = set().union(*ligands) if ligands else set()
 
-    ligand_bs_list = []
-    for ligand, ligand_score in zip(ligands, ligand_scores):
-        if not ligand:
-            continue
-        bs = get_binding_site(
-            ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
-            pdbid, res_atom_dict, ligands, ligand_res_atom_dict,
-            edd_dict, struc_dict, notligands, cfg)
-        if len(bs) == 1:
-            for lr in ligand:
-                res_atom_dict[lr] = ligand_res_atom_dict.pop(lr, set())
-                notligands.setdefault(lr, bs[0])
-            continue
-        ligand_bs_list.append(bs)
+    ligand_bs_list = _compute_binding_sites(
+        ligands, ligand_scores, good_rsr, bad_rsr, dubious_rsr,
+        pdbid, res_atom_dict, ligand_res_atom_dict, edd_dict, struc_dict,
+        notligands, cfg)
 
     # --- Serialise to JSON-safe structures ---
-    result_ligands = []
-    source = "PDB_REDO" if cfg.pdb_redo else "PDB"
-    for data in ligand_bs_list:
-        ligandresidues, binding_site, rte, ligandgood, bsgood, bad_occupancy, lig_score, bs_score = data
-        if not ligandresidues:
-            continue
-
-        # Residues belonging to any *other* ligand in this structure (e.g. a
-        # second binding site close enough to have been pulled into this
-        # one's binding site by get_binding_site's cross-ligand check).
-        # These still count towards this ligand's scoring above, but are
-        # excluded from everything sent below for 3D display, so the viewer
-        # only ever shows the ligand actually under study for this entry —
-        # any other ligand present in the structure stays hidden.
-        other_ligand_residues = all_ligand_keys - set(ligandresidues)
-        display_binding_site = [r for r in binding_site if r not in other_ligand_residues]
-        display_rte = [r for r in rte if r not in other_ligand_residues]
-        display_bad_occupancy = [r for r in bad_occupancy if r not in other_ligand_residues]
-
-        result_ligands.append({
-            "ligand_residues": sorted(ligandresidues),
-            "binding_site_residues": sorted(display_binding_site),
-            "residues_to_examine": sorted(display_rte),
-            "ligand_quality": ligandgood,
-            "binding_site_quality": bsgood,
-            "source": source,
-            "ligand_score": lig_score,
-            "binding_site_score": bs_score,
-            "low_occupancy": sorted(display_bad_occupancy),
-            # Other ligand(s) present in this structure that are NOT shown
-            # in the 3D viewer for this entry. Purely informational for the
-            # UI (e.g. "2 other ligand(s) hidden") — not used for scoring.
-            "other_ligands": sorted(other_ligand_residues),
-            # Padded bounding boxes for on-demand, segmented density
-            # display in the 3D viewer (see core.eds_utils.edm_box_url).
-            # None if a region has no atoms (shouldn't normally happen for
-            # ligand_residues, but binding_site/rte can theoretically be
-            # empty for a solvent-exposed ligand with distance=0).
-            "density_boxes": {
-                "ligand": residues_bbox(ligandresidues, res_atom_dict, ligand_res_atom_dict),
-                "binding_site": residues_bbox(display_binding_site, res_atom_dict, ligand_res_atom_dict),
-                "residues_to_examine": residues_bbox(display_rte, res_atom_dict, ligand_res_atom_dict),
-            },
-            # Per-atom coordinates used to actually differentiate the
-            # density shown for each region (see residue_atom_centers
-            # docstring) — the boxes above only size the download window.
-            "density_atoms": {
-                "ligand": residue_atom_centers(ligandresidues, res_atom_dict, ligand_res_atom_dict),
-                "binding_site": residue_atom_centers(display_binding_site, res_atom_dict, ligand_res_atom_dict),
-                "residues_to_examine": residue_atom_centers(display_rte, res_atom_dict, ligand_res_atom_dict),
-            },
-        })
-
-    safe_struc = {k: (v if not (isinstance(v, float) and math.isnan(v)) else None)
-                  for k, v in struc_dict.items()}
-
-    return {
-        "pdbid": pdbid,
-        "ligands": result_ligands,
-        "rejected": {k: str(v) for k, v in notligands.items()},
-        "struc_dict": safe_struc,
-    }
-
+    return _build_result(
+        pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
+        res_atom_dict, ligand_res_atom_dict, cfg)
 
 
 # Default cap on how many PDB entries are analysed concurrently. Each entry's
