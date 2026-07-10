@@ -23,7 +23,8 @@ import re
 import threading
 import uuid
 import logging
-import concurrent.futures
+from functools import wraps
+
 import requests
 from flask import (
     Blueprint, render_template, request, jsonify, current_app,
@@ -33,7 +34,7 @@ from flask import (
 import core.pdb_utils as pdb_utils
 import core.eds_utils as eds_utils
 import core.pdb_redo_utils as pdb_redo_utils
-from core.rsr_core import AnalysisConfig, DEFAULT_ANALYSE_WORKERS, parse_binding_site
+from core.rsr_core import AnalysisConfig, analyse_pdbids
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("main", __name__)
@@ -51,6 +52,21 @@ UNIPROT_RE = re.compile(
 )
 
 
+def _with_cache_dir(view):
+    """Point core.pdb_utils' shared cache dir at the app's configured one.
+
+    Every route that ends up calling into core.pdb_utils/eds_utils/
+    pdb_redo_utils (which all read the module-level CACHEDIR set by
+    core.pdb_utils.set_cache_dir) needs this done first. Applied as a
+    decorator instead of repeating the same call in each view.
+    """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        pdb_utils.set_cache_dir(current_app.config["CACHE_DIR"])
+        return view(*args, **kwargs)
+    return wrapper
+
+
 def _expand_ids(tokens):
     """
     Expand any UniProt accessions found in *tokens* into the PDB IDs of the
@@ -64,8 +80,6 @@ def _expand_ids(tokens):
                     can be tagged with the UniProt code they came from
       unresolved  – UniProt-looking tokens that returned no PDB entries
     """
-    import core.pdb_utils as pdb_utils  # local import avoids a circular import at module load
-
     pdbids = []
     origin_map = {}
     unresolved = []
@@ -95,52 +109,29 @@ def _expand_ids(tokens):
 
 
 def _run_job(job_id, pdbids, cfg, origin_map=None):
-    # Analyse entries concurrently: each one is dominated by network I/O
-    # (mmCIF + validation/stats downloads against RCSB/EBI/PDB-REDO), which
-    # releases the GIL while waiting, so a thread pool gives a large
-    # wall-clock speedup for multi-entry jobs. This is safe because every
-    # PDB ID reads/writes only its own per-entry cache directory (see
-    # core.http_cache.entry_cache_dir) and parse_binding_site() keeps all
-    # of its working state (good_rsr, edd_dict, res_atom_dict, ...) local
-    # to the call — nothing is shared/mutated across entries. `cfg` is
-    # read-only during analysis, so sharing one instance across threads is
-    # fine too.
+    # The actual concurrent analysis (thread pool, per-entry error
+    # handling, order preservation) lives in core.rsr_core.analyse_pdbids
+    # — see that function's docstring for why a thread pool is safe here.
+    # This wrapper only adds the two things that are specific to *this*
+    # web job: live progress updates for /api/status polling, and tagging
+    # each result with the UniProt accession (if any) that produced it.
     origin_map = origin_map or {}
-    total = len(pdbids)
-    results = [None] * total
-    completed = 0
 
-    def _analyse_one(pdbid):
-        try:
-            res = parse_binding_site(pdbid.strip().lower(), cfg)
-        except Exception as exc:
-            logger.exception("Error analysing %s", pdbid)
-            res = {"pdbid": pdbid, "error": str(exc)}
+    def _on_progress(completed, total):
+        # analyse_pdbids calls this from its own background thread (the
+        # one _run_job itself runs in), never concurrently with itself,
+        # so only the shared `_jobs` dict needs locking here — it's also
+        # read from request-handling threads via /api/status/<job_id>.
+        with _jobs_lock:
+            _jobs[job_id]["progress"] = completed
+            _jobs[job_id]["total"] = total
+
+    results = analyse_pdbids(pdbids, cfg, on_progress=_on_progress)
+
+    for pdbid, res in zip(pdbids, results):
         # Tag with the UniProt accession that produced this PDB ID, if any,
         # so the frontend can group/label results accordingly.
         res["uniprot"] = origin_map.get(pdbid.strip().lower())
-        return res
-
-    workers = min(DEFAULT_ANALYSE_WORKERS, total) or 1
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        # future_to_index lets us drop each result into its original slot
-        # in `results` as it completes, so the final order matches the
-        # order pdbids were submitted in — regardless of which one
-        # finishes first.
-        future_to_index = {
-            executor.submit(_analyse_one, pdbid): i
-            for i, pdbid in enumerate(pdbids)
-        }
-        for future in concurrent.futures.as_completed(future_to_index):
-            results[future_to_index[future]] = future.result()
-            completed += 1
-            # This loop runs single-threaded (in _run_job's own background
-            # thread), so `completed`/`results` need no locking — only the
-            # shared `_jobs` dict does, since /api/status/<job_id> reads it
-            # from other request-handling threads concurrently.
-            with _jobs_lock:
-                _jobs[job_id]["progress"] = completed
-                _jobs[job_id]["total"] = total
 
     with _jobs_lock:
         _jobs[job_id]["status"] = "done"
@@ -153,6 +144,7 @@ def index():
 
 
 @bp.route("/api/analyse", methods=["POST"])
+@_with_cache_dir  # UniProt resolution below also caches to disk, so set this first
 def analyse():
     data = request.get_json(force=True, silent=True) or {}
 
@@ -164,9 +156,6 @@ def analyse():
 
     if not tokens:
         return jsonify({"error": "No PDB IDs or UniProt accessions provided"}), 400
-
-    # Set cache dir before any lookups (UniProt resolution caches to disk too).
-    pdb_utils.set_cache_dir(current_app.config["CACHE_DIR"])
 
     pdbids, origin_map, unresolved = _expand_ids(tokens)
 
@@ -241,6 +230,7 @@ def status(job_id):
 # ---------------------------------------------------------------------------
 
 @bp.route("/api/edm/<pdbid>")
+@_with_cache_dir
 def edm(pdbid):
     """
     Serve an electron density map for pdbid, downloading it if needed.
@@ -254,7 +244,6 @@ def edm(pdbid):
     instead (a CCP4-style .map file from the map-maker service, NOT the
     same file/format as the default .ccp4 map below).
     """
-    pdb_utils.set_cache_dir(current_app.config["CACHE_DIR"])
     pdbid = pdbid.lower()
 
     if request.args.get("source") == "pdb_redo":
@@ -292,6 +281,7 @@ def _parse_xyz(raw, name):
 
 
 @bp.route("/api/density-box/<pdbid>")
+@_with_cache_dir
 def density_box(pdbid):
     """
     Proxy a region query to EBI's density server and stream back the
@@ -300,7 +290,6 @@ def density_box(pdbid):
       max=maxx,maxy,maxz   (required)
       detail=0-6           (optional, default 3)
     """
-    pdb_utils.set_cache_dir(current_app.config["CACHE_DIR"])
     pdbid = pdbid.lower()
     box_min = _parse_xyz(request.args.get("min", ""), "min")
     box_max = _parse_xyz(request.args.get("max", ""), "max")

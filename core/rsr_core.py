@@ -1642,7 +1642,7 @@ def parse_binding_site(pdbid, cfg=None):
 DEFAULT_ANALYSE_WORKERS = 8
 
 
-def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
+def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS, on_progress=None):
     """Analyse a list of PDB IDs concurrently.
 
     Calls :func:`parse_binding_site` for each PDB ID via a thread pool
@@ -1650,7 +1650,10 @@ def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
     than CPU), catching and logging any unexpected exception per entry so
     that one failing entry does not abort the whole batch. The web layer
     may call this in a background thread; results preserve the input
-    order regardless of completion order.
+    order regardless of completion order. This is the single place the
+    concurrent multi-entry analysis pattern lives — callers that need
+    incremental progress reporting (e.g. a polling job-status endpoint)
+    should use ``on_progress`` rather than reimplementing the thread pool.
 
     Args:
         pdbids (iterable): Iterable of PDB identifier strings to analyse.
@@ -1667,6 +1670,12 @@ def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
             its own per-entry cache directory (see
             :func:`core.http_cache.entry_cache_dir`), so entries never
             contend with each other on disk.
+        on_progress (callable, optional): If given, called as
+            ``on_progress(completed, total)`` after each entry finishes
+            (``completed`` includes the entry that just finished), in
+            completion order. Lets a caller update a job-status store
+            without reaching into the thread pool itself. Exceptions
+            raised by ``on_progress`` are not caught and will propagate.
 
     Returns:
         list: A list of result dicts, one per input PDB ID, **in the same
@@ -1677,7 +1686,8 @@ def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
     Raises:
         None: Unexpected exceptions from analysing an individual entry are
             caught, logged, and converted into an error result for that
-            entry rather than propagating.
+            entry rather than propagating. Exceptions from ``on_progress``
+            itself are not caught.
     """
     if cfg is None:
         cfg = AnalysisConfig()
@@ -1694,6 +1704,7 @@ def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
             return {"pdbid": pdbid, "error": str(exc)}
 
     workers = min(max_workers, len(pdbids))
+    completed = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_index = {
             executor.submit(_analyse_one, pdbid): i
@@ -1701,5 +1712,8 @@ def analyse_pdbids(pdbids, cfg=None, max_workers=DEFAULT_ANALYSE_WORKERS):
         }
         for future in concurrent.futures.as_completed(future_to_index):
             results[future_to_index[future]] = future.result()
+            completed += 1
+            if on_progress is not None:
+                on_progress(completed, len(pdbids))
 
     return results
