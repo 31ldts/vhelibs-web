@@ -127,17 +127,44 @@ pdbFileInput.addEventListener("change", () => {
   pdbFileInput.value = "";
 });
 
+// Human-readable labels for the numeric fields below, used to build a
+// useful error message if one of them fails to parse (e.g. left empty or
+// containing non-numeric text) instead of silently sending NaN -> null to
+// the backend.
+const THRESHOLD_LABELS = {
+  rsr_upper:      "RSR upper threshold",
+  rsr_lower:      "RSR lower threshold",
+  rscc_min:       "RSCC minimum",
+  rfree_max:      "R-free maximum",
+  occupancy_min:  "Occupancy minimum",
+  tolerance:      "Tolerance",
+  distance:       "Distance",
+  owab_max:       "OWAB maximum",
+  resolution_max: "Resolution maximum",
+  rdiff_max:      "R-diff maximum",
+  dpi_max:        "DPI maximum",
+};
+
+/**
+ * Collect the analysis form into a config object ready to POST.
+ *
+ * Throws a plain Error with a user-facing message if any numeric field
+ * fails to parse, so the caller can surface it (via alert()) instead of
+ * silently sending NaN -> null in the JSON payload, which would otherwise
+ * make the backend fall back to its own defaults without the user knowing
+ * their input was ignored.
+ */
 function gatherConfig() {
   const v = id => document.getElementById(id).value;
   const b = id => document.getElementById(id).checked;
-  return {
+  const cfg = {
     pdbids:          pdbInput.value,
     rsr_upper:       parseFloat(v("th_rsr_upper")),
     rsr_lower:       parseFloat(v("th_rsr_lower")),
     rscc_min:        parseFloat(v("th_rscc_min")),
     rfree_max:       parseFloat(v("th_rfree_max")),
     occupancy_min:   parseFloat(v("th_occupancy_min")),
-    tolerance:       parseInt(v("th_tolerance")),
+    tolerance:       parseInt(v("th_tolerance"), 10),
     distance:        parseFloat(v("th_distance")),
     use_pdb_redo:    b("usePdbRedo"),
     check_owab:      b("chk_owab"),
@@ -149,12 +176,38 @@ function gatherConfig() {
     use_dpi:         b("chk_dpi"),
     dpi_max:         parseFloat(v("th_dpi_max")),
   };
+
+  // Only validate the thresholds that are actually "active" for this run:
+  // e.g. rdiff_max/dpi_max are irrelevant (and may legitimately be blank)
+  // when use_rdiff/use_dpi are unchecked.
+  const mustValidate = Object.keys(THRESHOLD_LABELS).filter(key => {
+    if (key === "owab_max")       return cfg.check_owab;
+    if (key === "resolution_max") return cfg.check_resolution;
+    if (key === "rdiff_max")      return cfg.use_rdiff;
+    if (key === "dpi_max")        return cfg.use_dpi;
+    return true;
+  });
+  const invalid = mustValidate.filter(key => Number.isNaN(cfg[key]));
+  if (invalid.length) {
+    const names = invalid.map(k => THRESHOLD_LABELS[k]).join(", ");
+    throw new Error(`Please enter a valid number for: ${names}.`);
+  }
+
+  return cfg;
 }
 
 function startAnalysis() {
-  const cfg = gatherConfig();
+  let cfg;
+  try {
+    cfg = gatherConfig();
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
   const ids = cfg.pdbids.trim();
   if (!ids) { alert("Please enter at least one PDB ID."); return; }
+
+  stopPolling(); // cancel any poll loop still running for a previous job
 
   analyseBtn.disabled = true;
   analyseBtn.textContent = "Analysing…";
@@ -184,12 +237,44 @@ function startAnalysis() {
   });
 }
 
+// Tracks the pending poll timer so a fresh analysis (or a page-level
+// cleanup) can cancel any poll loop still running for a previous job —
+// without this, starting a second analysis while the first is still
+// polling would leave two loops fighting over the same progress bar.
+let activePollTimer = null;
+
+function stopPolling() {
+  if (activePollTimer) {
+    clearTimeout(activePollTimer);
+    activePollTimer = null;
+  }
+}
+
 function pollJob(jobId, total) {
+  stopPolling();
+
   const POLL_MS = 1500;
+  const MAX_CONSECUTIVE_ERRORS = 5;   // ~ a few network hiccups is fine
+  const MAX_TOTAL_MS = 30 * 60 * 1000; // give up after 30 min either way
+  const startedAt = Date.now();
+  let consecutiveErrors = 0;
+
+  const giveUp = message => {
+    stopPolling();
+    alert(message);
+    resetAnalyseBtn();
+  };
+
   const poll = () => {
+    if (Date.now() - startedAt > MAX_TOTAL_MS) {
+      giveUp("The analysis is taking much longer than expected and has been abandoned. It may still finish server-side; check back later or re-submit.");
+      return;
+    }
+
     fetch("/api/status/" + jobId)
       .then(r => r.json())
       .then(data => {
+        consecutiveErrors = 0;
         const done = data.progress || 0;
         const pct  = total > 0 ? Math.round((done / total) * 100) : 0;
         progressBar.style.width = pct + "%";
@@ -198,16 +283,24 @@ function pollJob(jobId, total) {
         if (data.status === "done") {
           progressBar.style.width = "100%";
           progressLabel.textContent = "Analysis complete.";
+          stopPolling();
           resetAnalyseBtn();
           renderResults(data.results);
           showTab("results");
         } else {
-          setTimeout(poll, POLL_MS);
+          activePollTimer = setTimeout(poll, POLL_MS);
         }
       })
-      .catch(() => setTimeout(poll, POLL_MS * 2));
+      .catch(() => {
+        consecutiveErrors++;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          giveUp("Lost contact with the server while checking analysis progress. Please check your connection and try again.");
+          return;
+        }
+        activePollTimer = setTimeout(poll, POLL_MS * 2);
+      });
   };
-  setTimeout(poll, POLL_MS);
+  activePollTimer = setTimeout(poll, POLL_MS);
 }
 
 function resetAnalyseBtn() {
@@ -258,10 +351,15 @@ function renderResults(results) {
 
   resultsSummary.classList.remove("hidden");
 
+  // Build every card in an off-DOM fragment first, then attach it in one
+  // shot — avoids a reflow per card when the result set is large (many
+  // PDB IDs submitted at once).
   resultsContainer.innerHTML = "";
+  const frag = document.createDocumentFragment();
   results.forEach(r => {
-    resultsContainer.appendChild(buildResultCard(r));
+    frag.appendChild(buildResultCard(r));
   });
+  resultsContainer.appendChild(frag);
   resultsContainer.classList.remove("hidden");
 
   applyResultsFilter();
@@ -418,11 +516,11 @@ function buildResultCard(r) {
         </div>
         <button class="view-btn" data-pdbid="${esc(r.pdbid)}"
           data-source="${esc(l.source || 'PDB')}"
-          data-ligands='${JSON.stringify(l.ligand_residues)}'
-          data-bs='${JSON.stringify(l.binding_site_residues)}'
-          data-rte='${JSON.stringify(l.residues_to_examine || [])}'
-          data-boxes='${JSON.stringify(l.density_boxes || {})}'
-          data-atoms='${JSON.stringify(l.density_atoms || {})}'>
+          data-ligands='${escAttr(JSON.stringify(l.ligand_residues))}'
+          data-bs='${escAttr(JSON.stringify(l.binding_site_residues))}'
+          data-rte='${escAttr(JSON.stringify(l.residues_to_examine || []))}'
+          data-boxes='${escAttr(JSON.stringify(l.density_boxes || {}))}'
+          data-atoms='${escAttr(JSON.stringify(l.density_atoms || {}))}'>
           View 3D
         </button>
       </div>
@@ -473,13 +571,20 @@ function buildResultCard(r) {
   card.querySelectorAll(".view-btn").forEach(btn => {
     btn.addEventListener("click", e => {
       e.stopPropagation();
-      const pdbid   = btn.dataset.pdbid;
-      const source  = btn.dataset.source || "PDB";
-      const ligands = JSON.parse(btn.dataset.ligands || "[]");
-      const bs      = JSON.parse(btn.dataset.bs || "[]");
-      const rte     = JSON.parse(btn.dataset.rte || "[]");
-      const boxes   = JSON.parse(btn.dataset.boxes || "{}");
-      const atoms   = JSON.parse(btn.dataset.atoms || "{}");
+      const pdbid  = btn.dataset.pdbid;
+      const source = btn.dataset.source || "PDB";
+      let ligands, bs, rte, boxes, atoms;
+      try {
+        ligands = JSON.parse(btn.dataset.ligands || "[]");
+        bs      = JSON.parse(btn.dataset.bs || "[]");
+        rte     = JSON.parse(btn.dataset.rte || "[]");
+        boxes   = JSON.parse(btn.dataset.boxes || "{}");
+        atoms   = JSON.parse(btn.dataset.atoms || "{}");
+      } catch (err) {
+        console.error("[VHELIBS] Corrupt residue/box data on View 3D button:", err);
+        alert(`Could not open the 3D viewer for ${pdbid.toUpperCase()}: its residue data looks corrupted. Try re-running the analysis.`);
+        return;
+      }
       openViewer(pdbid, ligands, bs, rte, boxes, atoms, source);
     });
   });
@@ -488,17 +593,6 @@ function buildResultCard(r) {
 }
 
 // ── 3D Viewer (Mol*) ──────────────────────────────────────
-//
-// Migrated from NGL to Mol*. Instead of imperatively adding/removing
-// representations on a live component (the NGL approach), the scene is
-// described declaratively as a MolViewSpec (MVS) tree and (re)loaded via
-// the MolViewSpec extension. This has a useful side effect for us: Mol*
-// diffs the new state tree against the current one and only recomputes
-// the parts that actually changed, so re-loading the MVS tree on every
-// checkbox toggle does NOT re-download/re-parse the structure file — only
-// the affected representations are touched. Camera focus/jump-to-residue
-// is handled separately via viewer.structureInteractivity(), which doesn't
-// require touching the state tree at all.
 
 let viewerInitPromise = null;   // Promise<Viewer>, created once
 let viewerInstance    = null;   // resolved Mol* Viewer (has .plugin)
@@ -784,11 +878,22 @@ async function applyMolstarScene({ focus, keepCamera }) {
 
   for (const src of sources) {
     try {
-      const mvsData = buildMvsData(
-        src.url, src.format, currentLigandRes, currentBsRes, layerState, focus,
-        currentDensityBoxes, currentDensityAtoms, currentAtomRadius, densityLayerState, currentIsovalue,
-        currentFocusRes, currentSource, redoMapAvailable
-      );
+      const mvsData = buildMvsData({
+        sourceUrl: src.url,
+        sourceFormat: src.format,
+        ligandRes: currentLigandRes,
+        bsRes: currentBsRes,
+        layers: layerState,
+        focus,
+        densityBoxes: currentDensityBoxes,
+        densityAtoms: currentDensityAtoms,
+        atomRadius: currentAtomRadius,
+        densityLayers: densityLayerState,
+        isovalue: currentIsovalue,
+        focusResidue: currentFocusRes,
+        mapSource: currentSource,
+        redoMapAvailable,
+      });
       await molstar.PluginExtensions.mvs.loadMVS(viewerInstance.plugin, mvsData, {
         replaceExisting: true,
         keepCamera: !!keepCamera,
@@ -800,18 +905,25 @@ async function applyMolstarScene({ focus, keepCamera }) {
       lastErr = err;
     }
   }
-    throw lastErr || new Error("Unknown Mol* load error");
-  }
+  throw lastErr || new Error("Unknown Mol* load error");
+}
 
 // HEAD-checks the PDB-REDO map endpoint without downloading the (possibly
 // large) body, so we know up front whether it's safe to include a volume
-// node for it in the MVS tree.
-async function checkPdbRedoMapAvailable(pdbid) {
+// node for it in the MVS tree. Bounded with an explicit timeout: without
+// one, a hung backend/proxy would leave applyMolstarScene() waiting
+// indefinitely before it can even start building the scene, which reads
+// to the user as a frozen viewer with no feedback.
+async function checkPdbRedoMapAvailable(pdbid, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const r = await fetch(pdbRedoMapUrl(pdbid), { method: "HEAD" });
+    const r = await fetch(pdbRedoMapUrl(pdbid), { method: "HEAD", signal: controller.signal });
     return r.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -827,9 +939,11 @@ function hasAnyBox(densityBoxes) {
   return DENSITY_REGIONS.some(r => densityBoxes && densityBoxes[r.boxKey]);
 }
 
-function buildMvsData(sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
-                       densityBoxes, densityAtoms, atomRadius, densityLayers, isovalue,
-                       focusResidue, mapSource, redoMapAvailable) {
+function buildMvsData({
+  sourceUrl, sourceFormat, ligandRes, bsRes, layers, focus,
+  densityBoxes, densityAtoms, atomRadius, densityLayers, isovalue,
+  focusResidue, mapSource, redoMapAvailable,
+}) {
   const builder = molstar.PluginExtensions.mvs.MVSData.createBuilder();
   const structure = builder
     .download({ url: sourceUrl })
@@ -948,42 +1062,42 @@ const MAX_CLIP_ATOMS_PER_REGION = 300;
       }
 
       let atoms = (densityAtoms && densityAtoms[region.boxKey]) || [];
-    if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
-      console.warn(`[VHELIBS] "${region.boxKey}" has ${atoms.length} atoms — capping per-atom density masking to ${MAX_CLIP_ATOMS_PER_REGION}.`);
-      atoms = atoms.slice(0, MAX_CLIP_ATOMS_PER_REGION);
-    }
-
-    const firstRep = volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true });
-    // volume-representation .clip() requires Mol* >= 5.0 (see index.html
-    // comment). Detected once per representation rather than assumed, so
-    // an older/unexpected Mol* build degrades gracefully instead of
-    // throwing and aborting the whole structure load.
-    //
-    // IMPORTANT: a clip node's default behaviour is to cut its shape OUT
-    // of the representation (hide what's inside, keep what's outside) —
-    // like slicing through a structure to see inside it. We want the
-    // opposite: keep only what's inside each atom's sphere and hide
-    // everything else, so `invert: true` is required below, otherwise
-    // each clip just punches an invisible pinhole out of the full box
-    // and the whole box still renders.
-    const supportsClip = atoms.length > 0 && typeof firstRep.clip === "function";
-
-    if (supportsClip) {
-      firstRep.color({ color: region.color }).opacity({ opacity: 0.35 })
-        .clip({ type: "sphere", center: atoms[0].center, radius: atomRadius, invert: true });
-      for (let i = 1; i < atoms.length; i++) {
-        volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
-          .color({ color: region.color })
-          .opacity({ opacity: 0.35 })
-          .clip({ type: "sphere", center: atoms[i].center, radius: atomRadius, invert: true });
+      if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
+        console.warn(`[VHELIBS] "${region.boxKey}" has ${atoms.length} atoms — capping per-atom density masking to ${MAX_CLIP_ATOMS_PER_REGION}.`);
+        atoms = atoms.slice(0, MAX_CLIP_ATOMS_PER_REGION);
       }
-    } else {
-      if (atoms.length) {
-        console.warn(`[VHELIBS] This Mol* build has no volume clip() support (requires Mol* >= 5.0) — showing the unmasked region box for "${region.boxKey}" instead of per-atom density.`);
+
+      const firstRep = volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true });
+      // volume-representation .clip() requires Mol* >= 5.0 (see index.html
+      // comment). Detected once per representation rather than assumed, so
+      // an older/unexpected Mol* build degrades gracefully instead of
+      // throwing and aborting the whole structure load.
+      //
+      // IMPORTANT: a clip node's default behaviour is to cut its shape OUT
+      // of the representation (hide what's inside, keep what's outside) —
+      // like slicing through a structure to see inside it. We want the
+      // opposite: keep only what's inside each atom's sphere and hide
+      // everything else, so `invert: true` is required below, otherwise
+      // each clip just punches an invisible pinhole out of the full box
+      // and the whole box still renders.
+      const supportsClip = atoms.length > 0 && typeof firstRep.clip === "function";
+
+      if (supportsClip) {
+        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 })
+          .clip({ type: "sphere", center: atoms[0].center, radius: atomRadius, invert: true });
+        for (let i = 1; i < atoms.length; i++) {
+          volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
+            .color({ color: region.color })
+            .opacity({ opacity: 0.35 })
+            .clip({ type: "sphere", center: atoms[i].center, radius: atomRadius, invert: true });
+        }
+      } else {
+        if (atoms.length) {
+          console.warn(`[VHELIBS] This Mol* build has no volume clip() support (requires Mol* >= 5.0) — showing the unmasked region box for "${region.boxKey}" instead of per-atom density.`);
+        }
+        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 });
       }
-      firstRep.color({ color: region.color }).opacity({ opacity: 0.35 });
     }
-  }
   }
 
   return builder.getState();
@@ -1035,29 +1149,36 @@ function populateResiduePicker(residues) {
   viewerResiduePicker.classList.remove("hidden");
 }
 
-// Layer checkboxes: rebuild the MVS scene with the same structure/camera
-// but only the checked representations included. Because Mol* diffs the
-// state tree, this only touches the representations that actually change.
-["chkProtein", "chkLigand", "chkBS"].forEach((id, i) => {
-  const key = ["protein", "ligand", "bs"][i];
-  document.getElementById(id).addEventListener("change", function () {
-    layerState[key] = this.checked;
-    if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
-    applyMolstarScene({ focus: false, keepCamera: true })
-      .catch(err => console.error("[VHELIBS] Failed to update layer visibility:", err));
+// Wires a group of checkboxes to a state object + scene rebuild.
+// Because Mol* diffs the state tree, rebuilding the scene on every
+// toggle only touches the representations that actually changed.
+function wireLayerCheckboxes(ids, keys, state, failureLabel) {
+  ids.forEach((id, i) => {
+    const key = keys[i];
+    document.getElementById(id).addEventListener("change", function () {
+      state[key] = this.checked;
+      if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
+      applyMolstarScene({ focus: false, keepCamera: true })
+        .catch(err => console.error(`[VHELIBS] Failed to update ${failureLabel}:`, err));
+    });
   });
-});
+}
 
-// Density region checkboxes (ligand / binding site / residues to examine).
-["chkDensityLigand", "chkDensityBS", "chkDensityRTE"].forEach((id, i) => {
-  const key = ["ligand", "bs", "rte"][i];
-  document.getElementById(id).addEventListener("change", function () {
-    densityLayerState[key] = this.checked;
-    if (!currentPdbId || isLoadingStructure || !viewerInstance) return;
-    applyMolstarScene({ focus: false, keepCamera: true })
-      .catch(err => console.error("[VHELIBS] Failed to update density visibility:", err));
-  });
-});
+// Structure-layer checkboxes (protein cartoon / ligand / binding site).
+wireLayerCheckboxes(
+  ["chkProtein", "chkLigand", "chkBS"],
+  ["protein", "ligand", "bs"],
+  layerState,
+  "layer visibility"
+);
+
+// Density-region checkboxes (ligand / binding site / residues to examine).
+wireLayerCheckboxes(
+  ["chkDensityLigand", "chkDensityBS", "chkDensityRTE"],
+  ["ligand", "bs", "rte"],
+  densityLayerState,
+  "density visibility"
+);
 
 // Isovalue (contour level) slider — applies to all visible density
 // volumes at once. Debounced slightly so dragging doesn't spam reloads.
@@ -1130,4 +1251,9 @@ function esc(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// Like esc(), but also escapes single quotes.
+function escAttr(s) {
+  return esc(s).replace(/'/g, "&#39;");
 }
