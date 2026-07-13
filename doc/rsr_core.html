@@ -65,7 +65,9 @@
 &nbsp;&nbsp;&nbsp;&nbsp;use_dpi=False,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;dpi_max=0.42,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdb_redo=False,<br>
-&nbsp;&nbsp;&nbsp;&nbsp;use_cache=True<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache=True,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;metals=None,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_blacklist=None<br>
 )<br>
 &nbsp;<br>
 All&nbsp;tunable&nbsp;parameters&nbsp;for&nbsp;a&nbsp;single&nbsp;analysis&nbsp;run.<br>
@@ -108,7 +110,16 @@ Attributes:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;validation&nbsp;files&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;being&nbsp;re-fetched.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;When&nbsp;``False``,&nbsp;every&nbsp;download&nbsp;performed&nbsp;for&nbsp;this&nbsp;run&nbsp;bypasses<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;on-disk&nbsp;cache&nbsp;—&nbsp;see&nbsp;:func:`core.http_cache.download_if_missing`<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;:func:`core.http_cache.fetch_json`.<br>&nbsp;</span></td></tr>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;:func:`core.http_cache.fetch_json`.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;metals&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;component&nbsp;(residue)&nbsp;code&nbsp;to&nbsp;description,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;used&nbsp;to&nbsp;classify&nbsp;HETATM&nbsp;residues&nbsp;as&nbsp;non-propagating&nbsp;metals/ions<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;rather&nbsp;than&nbsp;ligands.&nbsp;Defaults&nbsp;to&nbsp;:data:`core.cofactors.metals`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;when&nbsp;not&nbsp;given,&nbsp;so&nbsp;existing&nbsp;callers&nbsp;keep&nbsp;the&nbsp;original<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hardcoded&nbsp;behaviour.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_blacklist&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;component&nbsp;(residue)&nbsp;code&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;description,&nbsp;used&nbsp;to&nbsp;classify&nbsp;HETATM&nbsp;residues&nbsp;as&nbsp;known<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;solvents/buffers/additives&nbsp;rather&nbsp;than&nbsp;ligands.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:data:`core.cofactors.ligand_blacklist`&nbsp;when&nbsp;not&nbsp;given.<br>&nbsp;</span></td></tr>
 <tr><td>&nbsp;</td>
 <td class="singlecolumn">Methods defined here:<br>
 <dl><dt><a name="AnalysisConfig-__init__"><strong>__init__</strong></a>(
@@ -129,7 +140,9 @@ Attributes:<br>
     use_dpi=False,
     dpi_max=0.42,
     pdb_redo=False,
-    use_cache=True
+    use_cache=True,
+    metals=None,
+    ligand_blacklist=None
 )</dt><dd><span class="code">Initialize&nbsp;an&nbsp;<a href="#AnalysisConfig">AnalysisConfig</a>&nbsp;with&nbsp;the&nbsp;given&nbsp;tunable&nbsp;parameters.<br>
 &nbsp;<br>
 Args:<br>
@@ -169,6 +182,12 @@ Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;previously&nbsp;downloaded<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;structure/validation&nbsp;files&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;being<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;re-fetched&nbsp;for&nbsp;this&nbsp;run.&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;metals&nbsp;(dict,&nbsp;optional):&nbsp;Custom&nbsp;metals/ions&nbsp;lookup&nbsp;table&nbsp;to&nbsp;use<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;:data:`core.cofactors.metals`&nbsp;for&nbsp;this&nbsp;run.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``None``&nbsp;(use&nbsp;the&nbsp;built-in&nbsp;table).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_blacklist&nbsp;(dict,&nbsp;optional):&nbsp;Custom&nbsp;blacklist&nbsp;lookup<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;table&nbsp;to&nbsp;use&nbsp;instead&nbsp;of&nbsp;:data:`core.cofactors.ligand_blacklist`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for&nbsp;this&nbsp;run.&nbsp;Defaults&nbsp;to&nbsp;``None``&nbsp;(use&nbsp;the&nbsp;built-in&nbsp;table).<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None<br>
@@ -411,7 +430,13 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Fetch&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(or&nbsp;via&nbsp;the<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;helper&nbsp;functions&nbsp;called)&nbsp;and&nbsp;surfaced&nbsp;through&nbsp;the&nbsp;returned<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"error"``&nbsp;key&nbsp;rather&nbsp;than&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
- <dl><dt><a name="-parse_mmcif_file"><strong>parse_mmcif_file</strong></a>(mmciffilepath, pdbid, inner_distance)</dt><dd><span class="code">Parse&nbsp;an&nbsp;mmCIF&nbsp;file&nbsp;into&nbsp;atom&nbsp;and&nbsp;covalent-link&nbsp;dictionaries.<br>
+ <dl><dt><a name="-parse_mmcif_file"><strong>parse_mmcif_file</strong></a>(
+    mmciffilepath,
+    pdbid,
+    inner_distance,
+    metals=None,
+    ligand_blacklist=None
+)</dt><dd><span class="code">Parse&nbsp;an&nbsp;mmCIF&nbsp;file&nbsp;into&nbsp;atom&nbsp;and&nbsp;covalent-link&nbsp;dictionaries.<br>
 &nbsp;<br>
 Parses&nbsp;an&nbsp;mmCIF&nbsp;file&nbsp;(plain&nbsp;or&nbsp;gzip)&nbsp;using&nbsp;gemmi,&nbsp;classifying&nbsp;each<br>
 atom&nbsp;as&nbsp;protein/nucleic-acid,&nbsp;blacklisted&nbsp;ligand/metal,&nbsp;or&nbsp;ligand,<br>
@@ -424,6 +449,13 @@ Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;inner_distance&nbsp;(float):&nbsp;If&nbsp;falsy&nbsp;(e.g.&nbsp;``0``),&nbsp;protein/nucleic-acid<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;atoms&nbsp;are&nbsp;not&nbsp;added&nbsp;to&nbsp;``res_atom_dict``,&nbsp;skipping&nbsp;binding-site<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;distance&nbsp;calculations&nbsp;for&nbsp;non-ligand&nbsp;residues.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;metals&nbsp;(dict,&nbsp;optional):&nbsp;Metals/ions&nbsp;lookup&nbsp;table&nbsp;(component&nbsp;code<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&gt;&nbsp;description)&nbsp;used&nbsp;to&nbsp;classify&nbsp;HETATM&nbsp;residues.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:data:`core.cofactors.metals`&nbsp;when&nbsp;not&nbsp;given.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_blacklist&nbsp;(dict,&nbsp;optional):&nbsp;Blacklist&nbsp;lookup&nbsp;table<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(component&nbsp;code&nbsp;-&gt;&nbsp;description)&nbsp;used&nbsp;to&nbsp;classify&nbsp;HETATM<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;residues.&nbsp;Defaults&nbsp;to&nbsp;:data:`core.cofactors.ligand_blacklist`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;when&nbsp;not&nbsp;given.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;On&nbsp;success,&nbsp;a&nbsp;5-tuple<br>
