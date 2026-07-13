@@ -297,7 +297,7 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
    bit taller than what was actually available and forcing an unwanted
    scrollbar inside .viewer-controls. */
 .viewer-layout {
-  display: grid; grid-template-columns: 260px 50vw; gap: 20px;
+  display: grid; grid-template-columns: 260px minmax(400px, 1fr); gap: 20px;
   height: calc(100vh - var(--header-h) - var(--footer-h) - 56px);
   min-height: 400px;
   /* Break out of .main-content's 1200px cap so the viewport column can
@@ -342,9 +342,6 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 .legend-swatch {
   width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
 }
-.swatch-ligand  { background: #f59e0b; }
-.swatch-bs      { background: #5b7cf6; }
-.swatch-protein { background: #64748b; }
 
 /* Density-region legend (electron density colors, distinct from the
    structure representation colors above so both can be shown together) */
@@ -425,7 +422,7 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
   user-select: none;
 }
 .layer-control input[type="checkbox"] {
-  display: none; /* ocultamos el checkbox nativo */
+  display: none; /* hide the native checkbox; .layer-swatch below is the visible control */
 }
 
 .layer-swatch {
@@ -437,18 +434,22 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
   transition: background .15s, border-color .15s;
 }
 
-/* Colores específicos para cada capa (fondo y borde) */
+/* Per-layer colors (background + border), shared by both .layer-swatch
+   here and .legend-swatch in the "3D Viewer" section above — single
+   source of truth for the protein/ligand/binding-site palette so the two
+   UIs can never drift out of sync with each other. */
 .swatch-protein { background: #64748b; border-color: #64748b; }
 .swatch-ligand  { background: #f59e0b; border-color: #f59e0b; }
 .swatch-bs      { background: #5b7cf6; border-color: #5b7cf6; }
 
-/* Cuando el checkbox NO está marcado → fondo transparente (solo borde) */
+/* Unchecked layer -> swatch shows as a hollow outline (transparent fill). */
 .layer-control input[type="checkbox"]:not(:checked) + .layer-swatch {
   background: transparent !important;
 }
-/* Cuando está marcado, el fondo se mantiene según su clase (no se necesita regla extra) */
+/* Checked layer -> fill color comes from the .swatch-* rule above; no extra rule needed. */
 
-/* (Opcional) Atenuar el texto cuando la capa está oculta */
+/* Dim the label text (and swatch) when its layer is hidden, as a secondary
+   visual cue beyond the swatch's own outline-only state. */
 .layer-control input[type="checkbox"]:not(:checked) ~ * {
   opacity: 0.6;
 }
