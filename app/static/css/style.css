@@ -75,7 +75,7 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 
 .panel-grid {
   display: grid;
-  grid-template-columns: 1fr 1.2fr;
+  grid-template-columns: 1fr 1.5fr;
   gap: 20px;
 }
 @media (max-width: 700px) { .panel-grid { grid-template-columns: 1fr; } }
@@ -127,11 +127,15 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 
 /* ── Thresholds ───────────────────────────────────────── */
 .threshold-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px 16px;
 }
+@media (max-width: 700px) { .threshold-grid { grid-template-columns: 1fr 1fr; } }
 .th-label {
   display: flex; flex-direction: column; gap: 4px;
   font-size: .8125rem; color: var(--clr-muted);
+}
+.th-check-combo .checkbox-label {
+  font-size: inherit; color: inherit; gap: 6px;
 }
 .th-hint { font-size: .7rem; color: var(--clr-border); }
 .th-input {
@@ -158,7 +162,7 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
   color: var(--clr-muted); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
 }
 .blacklist-entry-list {
-  max-height: 260px; overflow-y: auto;
+  max-height: 170px; overflow-y: auto;
   background: var(--clr-surface2); border: 1px solid var(--clr-border);
   border-radius: var(--radius); padding: 6px;
   display: flex; flex-direction: column; gap: 2px;

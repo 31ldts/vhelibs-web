@@ -43,10 +43,6 @@
           <h2 class="card-title">PDB IDs / UniProt Accessions to Analyse</h2>
           <textarea id="pdbInput" class="pdb-textarea"
             placeholder="Enter PDB IDs and/or UniProt accessions, separated by commas, spaces or newlines&#10;e.g. 1cbs, 3dzu, 4hhb, P00734"></textarea>
-          <p class="th-hint" style="margin-top:4px">
-            A UniProt accession (e.g. <code>P00734</code>) is automatically expanded to every
-            PDB structure associated with it.
-          </p>
           <div class="input-row">
             <label class="btn btn-secondary" style="cursor:pointer">
               Load from file…
@@ -58,6 +54,11 @@
             <label class="checkbox-label">
               <input type="checkbox" id="usePdbRedo" />
               Use PDB-REDO structures
+            </label>
+          </div>
+          <div class="input-row">
+            <label class="checkbox-label" title="When checked, previously downloaded structure/validation files are reused instead of being re-downloaded. Uncheck to force a fresh download for this run.">
+              <input type="checkbox" id="chk_use_cache" checked /> Use cached downloads
             </label>
             <button id="analyseBtn" class="btn btn-primary">Analyse</button>
           </div>
@@ -73,6 +74,9 @@
             <label class="th-label">RSR lower <span class="th-hint">residues below → good</span>
               <input type="number" id="th_rsr_lower" value="0.24" step="0.01" min="0" max="1" class="th-input" />
             </label>
+            <label class="th-label">Tolerance <span class="th-hint">max unmet criteria for Dubious</span>
+              <input type="number" id="th_tolerance" value="2" step="1" min="0" max="10" class="th-input" />
+            </label>
             <label class="th-label">Min RSCC
               <input type="number" id="th_rscc_min" value="0.9" step="0.01" min="0" max="1" class="th-input" />
             </label>
@@ -82,58 +86,33 @@
             <label class="th-label">Min occupancy
               <input type="number" id="th_occupancy_min" value="1.0" step="0.01" min="0" max="1" class="th-input" />
             </label>
-            <label class="th-label">Tolerance <span class="th-hint">max unmet criteria for Dubious</span>
-              <input type="number" id="th_tolerance" value="2" step="1" min="0" max="10" class="th-input" />
-            </label>
             <label class="th-label">BS distance (Å)
               <input type="number" id="th_distance" value="4.5" step="0.1" min="0" class="th-input" />
             </label>
+            <label class="th-label th-check-combo">
+              <span class="checkbox-label"><input type="checkbox" id="chk_owab" /> Check OWAB</span>
+              <input type="number" id="th_owab_max" value="50" step="1" class="th-input" />
+            </label>
+            <label class="th-label th-check-combo">
+              <span class="checkbox-label"><input type="checkbox" id="chk_resolution" /> Check resolution</span>
+              <input type="number" id="th_resolution_max" value="3.5" step="0.1" class="th-input" />
+            </label>
+            <label class="th-label th-check-combo">
+              <span class="checkbox-label"><input type="checkbox" id="chk_rdiff" /> Check R-diff</span>
+              <input type="number" id="th_rdiff_max" value="0.05" step="0.01" class="th-input" />
+            </label>
+            <label class="th-label th-check-combo">
+              <span class="checkbox-label"><input type="checkbox" id="chk_dpi" /> Check DPI</span>
+              <input type="number" id="th_dpi_max" value="0.42" step="0.01" class="th-input" />
+            </label>
           </div>
-
-          <details class="advanced-section">
-            <summary>Advanced options</summary>
-            <div class="threshold-grid mt-8">
-              <label class="checkbox-label col-2">
-                <input type="checkbox" id="chk_owab" /> Check OWAB
-              </label>
-              <label class="th-label">Max OWAB
-                <input type="number" id="th_owab_max" value="50" step="1" class="th-input" />
-              </label>
-              <label class="checkbox-label col-2">
-                <input type="checkbox" id="chk_resolution" /> Check resolution
-              </label>
-              <label class="th-label">Max resolution (Å)
-                <input type="number" id="th_resolution_max" value="3.5" step="0.1" class="th-input" />
-              </label>
-              <label class="checkbox-label col-2">
-                <input type="checkbox" id="chk_rdiff" /> Check R-diff
-              </label>
-              <label class="th-label">Max R-diff
-                <input type="number" id="th_rdiff_max" value="0.05" step="0.01" class="th-input" />
-              </label>
-              <label class="checkbox-label col-2">
-                <input type="checkbox" id="chk_dpi" /> Check DPI
-              </label>
-              <label class="th-label">Max DPI
-                <input type="number" id="th_dpi_max" value="0.42" step="0.01" class="th-input" />
-              </label>
-              <label class="checkbox-label col-2" title="When checked, previously downloaded structure/validation files are reused instead of being re-downloaded. Uncheck to force a fresh download for this run.">
-                <input type="checkbox" id="chk_use_cache" checked /> Use cached downloads
-              </label>
-            </div>
-          </details>
         </div>
 
       </div><!-- /panel-grid -->
 
       <!-- Blacklist card -->
       <div class="card card-blacklist" style="margin-top:20px">
-        <h2 class="card-title">Ligand blacklist</h2>
-        <p class="th-hint" style="margin-bottom:10px">
-          Components checked here are excluded from ligand consideration (treated as solvent,
-          buffer, crystallisation additive, or metal/ion) instead of being scored as ligands.
-          Uncheck an entry to let it be analysed as a ligand for this run.
-        </p>
+        <h2 class="card-title">Ligand Blacklist</h2>
 
         <div class="input-row" style="margin-bottom:10px">
           <input type="text" id="blacklistSearch" class="th-input" style="max-width:260px"
@@ -156,7 +135,7 @@
           </div>
         </div>
 
-        <details class="advanced-section" open>
+        <details class="advanced-section">
           <summary>Add a custom entry</summary>
           <div class="input-row mt-8" style="flex-wrap:wrap">
             <input type="text" id="blacklistNewCode" class="th-input" style="max-width:100px; text-transform:uppercase"
