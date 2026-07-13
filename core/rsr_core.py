@@ -55,6 +55,11 @@ class AnalysisConfig:
             enabled.
         pdb_redo (bool): Whether to source structural/refinement data from
             PDB-REDO instead of the primary PDB/RCSB archive.
+        use_cache (bool): Whether previously downloaded structure and
+            validation files may be reused instead of being re-fetched.
+            When ``False``, every download performed for this run bypasses
+            the on-disk cache — see :func:`core.http_cache.download_if_missing`
+            and :func:`core.http_cache.fetch_json`.
     """
 
     def __init__(
@@ -75,6 +80,7 @@ class AnalysisConfig:
         use_dpi=False,
         dpi_max=0.42,
         pdb_redo=False,
+        use_cache=True,
     ):
         """Initialize an AnalysisConfig with the given tunable parameters.
 
@@ -112,6 +118,9 @@ class AnalysisConfig:
                 ``0.42``.
             pdb_redo (bool, optional): Whether to source data from
                 PDB-REDO. Defaults to ``False``.
+            use_cache (bool, optional): Whether previously downloaded
+                structure/validation files may be reused instead of being
+                re-fetched for this run. Defaults to ``True``.
 
         Returns:
             None
@@ -135,6 +144,7 @@ class AnalysisConfig:
         self.use_dpi = use_dpi
         self.dpi_max = dpi_max
         self.pdb_redo = pdb_redo
+        self.use_cache = use_cache
 
 
 # ---------------------------------------------------------------------------
@@ -1147,7 +1157,7 @@ def _fetch_structure_data(pdbid, cfg):
 
     Args:
         pdbid (str): Lower-cased PDB identifier.
-        cfg (AnalysisConfig): Supplies ``pdb_redo``.
+        cfg (AnalysisConfig): Supplies ``pdb_redo`` and ``use_cache``.
 
     Returns:
         tuple: ``(pdbid_stats, edd_dict, error)``. If fetching failed,
@@ -1158,21 +1168,21 @@ def _fetch_structure_data(pdbid, cfg):
         None
     """
     if cfg.pdb_redo:
-        pdbid_stats = pdb_redo_utils.get_pdbredo_data(pdbid)
+        pdbid_stats = pdb_redo_utils.get_pdbredo_data(pdbid, use_cache=cfg.use_cache)
         if not pdbid_stats:
             return None, None, "Not in PDB_REDO"
-        edd_dict = pdb_redo_utils.get_ED_data(pdbid)
+        edd_dict = pdb_redo_utils.get_ED_data(pdbid, use_cache=cfg.use_cache)
         if not edd_dict:
             return None, None, "No PDB-REDO ED data available"
         return pdbid_stats, edd_dict, None
 
-    report = pdb_utils.get_custom_report(pdbid)
+    report = pdb_utils.get_custom_report(pdbid, use_cache=cfg.use_cache)
     # report may be empty for NMR/cryo-EM — continue with empty stats;
     # rFree will be 9999, adding to score, but analysis still runs.
     pdbid_stats = report.get(pdbid.upper(), {}) if report else {}
     if not pdbid_stats:
         logger.warning("%s: no refinement stats; proceeding without R-factor data", pdbid)
-    _, edd_dict = eds_utils.get_EDS(pdbid)
+    _, edd_dict = eds_utils.get_EDS(pdbid, use_cache=cfg.use_cache)
     if not edd_dict:
         return None, None, "No EDM/validation data available (may not be an X-ray entry)"
     return pdbid_stats, edd_dict, None
@@ -1587,7 +1597,7 @@ def parse_binding_site(pdbid, cfg=None):
     struc_dict = _build_struc_dict(pdbid_stats, cfg)
 
     # --- Download & parse mmCIF ---
-    pdbfilepath = pdb_utils.get_pdb_file(pdbid.upper(), cfg.pdb_redo)
+    pdbfilepath = pdb_utils.get_pdb_file(pdbid.upper(), cfg.pdb_redo, use_cache=cfg.use_cache)
     if not pdbfilepath:
         return {"pdbid": pdbid, "error": "Unable to load PDBx/mmCIF model"}
 

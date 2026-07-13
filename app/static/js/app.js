@@ -175,6 +175,7 @@ function gatherConfig() {
     rdiff_max:       parseFloat(v("th_rdiff_max")),
     use_dpi:         b("chk_dpi"),
     dpi_max:         parseFloat(v("th_dpi_max")),
+    use_cache:       b("chk_use_cache"),
   };
 
   // Only validate the thresholds that are actually "active" for this run:

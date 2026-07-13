@@ -170,7 +170,7 @@ def _parse_validation_xml(xml_path):
     return edd_dict
 
 
-def get_EDS(pdbid):
+def get_EDS(pdbid, use_cache=True):
     """Fetch EDS (Electron Density Server) validation statistics from PDBe.
 
     Downloads (and caches on disk) the PDBe validation XML file for the
@@ -180,6 +180,12 @@ def get_EDS(pdbid):
     Args:
         pdbid (str): PDB identifier of the structure to fetch. It is
             lower-cased before use.
+        use_cache (bool, optional): Whether an existing, previously
+            downloaded validation XML file may be reused instead of
+            re-downloading it. When ``False``, the file is re-fetched via
+            the exact same code path (and log line) used when it was
+            missing in the first place, so the two situations behave and
+            log identically. Defaults to ``True``.
 
     Returns:
         tuple: A 2-tuple ``(pdbdict, edd_dict)``:
@@ -208,7 +214,8 @@ def get_EDS(pdbid):
     stat_path = os.path.join(downloaddir, f"{pdbid}_validation.xml")
 
     try:
-        if not os.path.isfile(stat_path):
+        have_cached = use_cache and os.path.isfile(stat_path) and os.path.getsize(stat_path) > 0
+        if not have_cached:
             logger.info("Downloading %s", url)
             result = http_cache.download_or_404(url, stat_path, timeout=60)
             if not result:

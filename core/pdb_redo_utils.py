@@ -58,7 +58,7 @@ def _parse_ed_data(ed_data):
     return edd_dict
 
 
-def get_ED_data(pdbid):
+def get_ED_data(pdbid, use_cache=True):
     """Fetch per-residue RSR/RSCC electron-density statistics from PDB-REDO.
 
     Downloads (and caches on disk) the PDB-REDO ``*_final.json`` file for
@@ -68,6 +68,9 @@ def get_ED_data(pdbid):
     Args:
         pdbid (str): PDB identifier of the structure to fetch. It is
             lower-cased before use.
+        use_cache (bool, optional): Whether an existing cached copy of the
+            file may be reused instead of re-downloading it. Defaults to
+            ``True``.
 
     Returns:
         dict or None: A dictionary mapping residue key (as produced by
@@ -85,7 +88,7 @@ def get_ED_data(pdbid):
     url = PDB_REDO_ED_DATA_URL.format(pdbid=pdbid)
     filename = os.path.join(downloaddir, f"{pdbid}_final.json")
 
-    if not http_cache.download_if_missing(url, filename, timeout=_DOWNLOAD_TIMEOUT):
+    if not http_cache.download_if_missing(url, filename, timeout=_DOWNLOAD_TIMEOUT, use_cache=use_cache):
         logger.error("Unable to download %s", url)
         return None
 
@@ -133,16 +136,19 @@ def _extract_pdbredo_props(rawdict):
     }
 
 
-def get_pdbredo_data(pdbid):
+def get_pdbredo_data(pdbid, use_cache=True):
     """Fetch overall structure refinement statistics from PDB-REDO.
 
-    Retrieves (using a local cache when available) the PDB-REDO
-    ``data.json`` file for the given entry and extracts a set of
-    structure-level refinement properties from it.
+    Retrieves (using a local cache when available and ``use_cache`` is
+    ``True``) the PDB-REDO ``data.json`` file for the given entry and
+    extracts a set of structure-level refinement properties from it.
 
     Args:
         pdbid (str): PDB identifier of the structure to fetch. It is
             lower-cased before use.
+        use_cache (bool, optional): Whether a cached copy of the
+            ``data.json`` file may be reused instead of re-fetching it.
+            Defaults to ``True``.
 
     Returns:
         dict or None: A dictionary compatible with
@@ -164,7 +170,7 @@ def get_pdbredo_data(pdbid):
     url = ALLDATA_URL.format(pdbid=pdbid)
     cache_path = os.path.join(cachedir, "data.json")
 
-    rawdict = http_cache.fetch_json(url, cache_path, timeout=_DOWNLOAD_TIMEOUT)
+    rawdict = http_cache.fetch_json(url, cache_path, timeout=_DOWNLOAD_TIMEOUT, use_cache=use_cache)
     if rawdict is None:
         logger.error("Could not fetch PDB-REDO data for %s", pdbid)
         return None
@@ -176,15 +182,19 @@ def get_pdbredo_data(pdbid):
         return None
 
 
-def get_EDM(pdbid):
+def get_EDM(pdbid, use_cache=True):
     """Download (and cache) the PDB-REDO MTZ electron density map file.
 
-    If a valid cached copy of the MTZ file already exists locally, the
-    download is skipped and the cached path is returned directly.
+    If a valid cached copy of the MTZ file already exists locally and
+    ``use_cache`` is ``True``, the download is skipped and the cached path
+    is returned directly.
 
     Args:
         pdbid (str): PDB identifier of the structure to fetch. It is
             lower-cased before use.
+        use_cache (bool, optional): Whether an existing cached copy of the
+            MTZ file may be reused instead of re-downloading it. Defaults
+            to ``True``.
 
     Returns:
         str or None: Local filesystem path to the downloaded (or cached)
@@ -201,7 +211,7 @@ def get_EDM(pdbid):
     url = PDB_REDO_EDM_URL.format(pdbid=pdbid)
     filename = os.path.join(downloaddir, f"{pdbid}_final.mtz")
 
-    if http_cache.download_if_missing(url, filename, timeout=_DOWNLOAD_TIMEOUT):
+    if http_cache.download_if_missing(url, filename, timeout=_DOWNLOAD_TIMEOUT, use_cache=use_cache):
         return filename
 
     logger.error("Could not download %s", url)

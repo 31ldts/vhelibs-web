@@ -128,18 +128,22 @@ def _extract_report_fields(rawdict):
     }
 
 
-def get_custom_report(pdbid):
+def get_custom_report(pdbid, use_cache=True):
     """Fetch structure refinement/metadata statistics from the RCSB REST API.
 
-    Retrieves (using a local cache when available) the RCSB entry data for
-    the given PDB entry and extracts a set of refinement and unit-cell
-    statistics from it. Every extracted value has a safe fallback, so a
-    missing or null field never causes the whole entry to fail.
+    Retrieves (using a local cache when available and ``use_cache`` is
+    ``True``) the RCSB entry data for the given PDB entry and extracts a
+    set of refinement and unit-cell statistics from it. Every extracted
+    value has a safe fallback, so a missing or null field never causes the
+    whole entry to fail.
 
     Args:
         pdbid (str): PDB identifier of the structure to fetch. Case is
             normalized internally (upper-cased for the returned dict key,
             lower-cased for the API request URL).
+        use_cache (bool, optional): Whether a cached response for this
+            entry may be reused instead of re-querying the RCSB API.
+            Defaults to ``True``.
 
     Returns:
         dict: A dictionary of the form ``{PDBID: rowdict}`` where
@@ -162,7 +166,7 @@ def get_custom_report(pdbid):
     cachedir = http_cache.entry_cache_dir(CACHEDIR, pdbid)
     cache_path = os.path.join(cachedir, "pdb_stats.json")
 
-    rawdict = http_cache.fetch_json(url, cache_path, timeout=30)
+    rawdict = http_cache.fetch_json(url, cache_path, timeout=30, use_cache=use_cache)
     if rawdict is None:
         return {}
 
@@ -266,18 +270,22 @@ def get_pdbids_for_uniprot(uniprot_id, max_results=200):
     return pdbids
 
 
-def get_pdb_file(pdbcode, pdb_redo=False):
+def get_pdb_file(pdbcode, pdb_redo=False, use_cache=True):
     """Download (and cache) the mmCIF structure file for a PDB entry.
 
     Fetches the mmCIF file either from the standard RCSB file archive or,
     if requested, from PDB-REDO's re-refined coordinate set. If a valid
-    cached copy already exists locally, the download is skipped.
+    cached copy already exists locally and ``use_cache`` is ``True``, the
+    download is skipped.
 
     Args:
         pdbcode (str): PDB identifier of the structure to fetch.
         pdb_redo (bool, optional): If ``True``, download the PDB-REDO
             re-refined ``.cif`` file instead of the standard RCSB
             ``.cif.gz`` file. Defaults to ``False``.
+        use_cache (bool, optional): Whether an existing cached copy of the
+            file may be reused instead of re-downloading it. Defaults to
+            ``True``.
 
     Returns:
         str: Local filesystem path to the downloaded (or cached) mmCIF
@@ -298,7 +306,7 @@ def get_pdb_file(pdbcode, pdb_redo=False):
         url = PDBREDObase_full.format(pdbid=pdbcode_lower)
         filename = os.path.join(CACHEDIR, os.path.basename(url))
 
-    if http_cache.download_if_missing(url, filename, timeout=30, retries=3):
+    if http_cache.download_if_missing(url, filename, timeout=30, retries=3, use_cache=use_cache):
         logger.debug("Using file: %s", filename)
         return filename
 

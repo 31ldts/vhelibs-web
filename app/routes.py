@@ -194,6 +194,7 @@ def analyse():
         rdiff_max=_f("rdiff_max", 0.05),
         use_dpi=_b("use_dpi"),
         dpi_max=_f("dpi_max", 0.42),
+        use_cache=bool(data.get("use_cache", True)),
     )
 
     job_id = str(uuid.uuid4())

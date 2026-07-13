@@ -68,18 +68,27 @@ def download_file(url, dest_path, timeout=30, retries=3):
     return False
 
 
-def download_if_missing(url, dest_path, timeout=30, retries=3):
+def download_if_missing(url, dest_path, timeout=30, retries=3, use_cache=True):
     """Ensure ``dest_path`` exists locally, downloading ``url`` if it doesn't.
 
-    A file is considered already cached if it exists and is non-empty; in
-    that case no network request is made at all.
+    A file is considered already cached if ``use_cache`` is ``True`` and it
+    exists and is non-empty; in that case no network request is made at
+    all. When ``use_cache`` is ``False``, this always re-downloads and
+    overwrites ``dest_path`` — via the exact same code path (and log line)
+    used when the file is simply missing, so callers get identical
+    logging/behaviour whether the cache was disabled or the file was never
+    there in the first place.
 
     Args:
-        url (str): URL to download if ``dest_path`` is missing or empty.
+        url (str): URL to download if ``dest_path`` is missing, empty, or
+            ``use_cache`` is ``False``.
         dest_path (str): Local filesystem path to check/write.
         timeout (int or float, optional): Per-request timeout in seconds.
             Defaults to ``30``.
         retries (int, optional): Maximum download attempts. Defaults to ``3``.
+        use_cache (bool, optional): Whether an existing, non-empty
+            ``dest_path`` may be reused instead of re-downloading. Defaults
+            to ``True``.
 
     Returns:
         bool: ``True`` if ``dest_path`` is usable afterwards (already
@@ -89,7 +98,7 @@ def download_if_missing(url, dest_path, timeout=30, retries=3):
     Raises:
         None: See :func:`download_file`.
     """
-    if os.path.isfile(dest_path) and os.path.getsize(dest_path) > 0:
+    if use_cache and os.path.isfile(dest_path) and os.path.getsize(dest_path) > 0:
         return True
     logger.info("Downloading %s", url)
     return download_file(url, dest_path, timeout=timeout, retries=retries)
@@ -194,13 +203,15 @@ def save_json(cache_path, data):
         pass
 
 
-def fetch_json(url, cache_path, timeout=30):
+def fetch_json(url, cache_path, timeout=30, use_cache=True):
     """Return parsed JSON for ``url``, using ``cache_path`` as an on-disk cache.
 
-    If a valid cached copy exists at ``cache_path`` it is loaded and
-    returned directly, with no network request. Otherwise ``url`` is
-    fetched with a plain GET, the parsed JSON is cached to ``cache_path``
-    (best effort) and returned.
+    If ``use_cache`` is ``True`` and a valid cached copy exists at
+    ``cache_path`` it is loaded and returned directly, with no network
+    request. Otherwise ``url`` is fetched with a plain GET — via the exact
+    same code path whether the cache was empty or ``use_cache`` was
+    ``False`` — the parsed JSON is cached to ``cache_path`` (best effort,
+    overwriting any previous copy) and returned.
 
     Args:
         url (str): URL to GET and parse as JSON.
@@ -208,6 +219,9 @@ def fetch_json(url, cache_path, timeout=30):
             and to write a freshly-fetched one.
         timeout (int or float, optional): Request timeout in seconds.
             Defaults to ``30``.
+        use_cache (bool, optional): Whether an existing cached copy at
+            ``cache_path`` may be reused instead of re-fetching. Defaults
+            to ``True``.
 
     Returns:
         The parsed JSON value, or ``None`` if there is no usable cache and
@@ -217,10 +231,11 @@ def fetch_json(url, cache_path, timeout=30):
         None: Request and parsing errors are caught internally and logged;
             the function returns ``None`` instead of propagating them.
     """
-    cached = load_cached_json(cache_path)
-    if cached is not None:
-        logger.debug("Loading cached JSON: %s", cache_path)
-        return cached
+    if use_cache:
+        cached = load_cached_json(cache_path)
+        if cached is not None:
+            logger.debug("Loading cached JSON: %s", cache_path)
+            return cached
 
     logger.info("Fetching %s", url)
     try:
