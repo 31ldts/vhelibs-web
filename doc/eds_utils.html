@@ -63,7 +63,7 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;keys.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;ValueError:&nbsp;If&nbsp;``box["min"]``&nbsp;or&nbsp;``box["max"]``&nbsp;cannot&nbsp;be&nbsp;unpacked<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;into&nbsp;exactly&nbsp;three&nbsp;coordinate&nbsp;values.</span></dd></dl>
- <dl><dt><a name="-get_EDS"><strong>get_EDS</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
+ <dl><dt><a name="-get_EDS"><strong>get_EDS</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
 &nbsp;<br>
 Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDBe&nbsp;validation&nbsp;XML&nbsp;file&nbsp;for&nbsp;the<br>
 given&nbsp;PDB&nbsp;entry,&nbsp;then&nbsp;parses&nbsp;per-residue&nbsp;electron-density&nbsp;validation<br>
@@ -72,6 +72,12 @@ metrics&nbsp;(RSR,&nbsp;RSCC,&nbsp;OWAB,&nbsp;RSRZ,&nbsp;occupancy)&nbsp;from&nb
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing,&nbsp;previously<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;downloaded&nbsp;validation&nbsp;XML&nbsp;file&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;re-downloading&nbsp;it.&nbsp;When&nbsp;``False``,&nbsp;the&nbsp;file&nbsp;is&nbsp;re-fetched&nbsp;via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;exact&nbsp;same&nbsp;code&nbsp;path&nbsp;(and&nbsp;log&nbsp;line)&nbsp;used&nbsp;when&nbsp;it&nbsp;was<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;missing&nbsp;in&nbsp;the&nbsp;first&nbsp;place,&nbsp;so&nbsp;the&nbsp;two&nbsp;situations&nbsp;behave&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;log&nbsp;identically.&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;A&nbsp;2-tuple&nbsp;``(pdbdict,&nbsp;edd_dict)``:<br>
@@ -126,7 +132,7 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request&nbsp;and&nbsp;I/O&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``(None,&nbsp;None)``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
- <dl><dt><a name="-get_validation_data"><strong>get_validation_data</strong></a> = get_EDS(pdbid)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
+ <dl><dt><a name="-get_validation_data"><strong>get_validation_data</strong></a> = get_EDS(pdbid, use_cache=True)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
 &nbsp;<br>
 Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDBe&nbsp;validation&nbsp;XML&nbsp;file&nbsp;for&nbsp;the<br>
 given&nbsp;PDB&nbsp;entry,&nbsp;then&nbsp;parses&nbsp;per-residue&nbsp;electron-density&nbsp;validation<br>
@@ -135,6 +141,12 @@ metrics&nbsp;(RSR,&nbsp;RSCC,&nbsp;OWAB,&nbsp;RSRZ,&nbsp;occupancy)&nbsp;from&nb
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing,&nbsp;previously<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;downloaded&nbsp;validation&nbsp;XML&nbsp;file&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;re-downloading&nbsp;it.&nbsp;When&nbsp;``False``,&nbsp;the&nbsp;file&nbsp;is&nbsp;re-fetched&nbsp;via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;exact&nbsp;same&nbsp;code&nbsp;path&nbsp;(and&nbsp;log&nbsp;line)&nbsp;used&nbsp;when&nbsp;it&nbsp;was<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;missing&nbsp;in&nbsp;the&nbsp;first&nbsp;place,&nbsp;so&nbsp;the&nbsp;two&nbsp;situations&nbsp;behave&nbsp;and<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;log&nbsp;identically.&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;A&nbsp;2-tuple&nbsp;``(pdbdict,&nbsp;edd_dict)``:<br>

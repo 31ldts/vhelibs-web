@@ -36,14 +36,18 @@
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
     
 <tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
-<td class="singlecolumn"><dl><dt><a name="-get_EDM"><strong>get_EDM</strong></a>(pdbid)</dt><dd><span class="code">Download&nbsp;(and&nbsp;cache)&nbsp;the&nbsp;PDB-REDO&nbsp;MTZ&nbsp;electron&nbsp;density&nbsp;map&nbsp;file.<br>
+<td class="singlecolumn"><dl><dt><a name="-get_EDM"><strong>get_EDM</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Download&nbsp;(and&nbsp;cache)&nbsp;the&nbsp;PDB-REDO&nbsp;MTZ&nbsp;electron&nbsp;density&nbsp;map&nbsp;file.<br>
 &nbsp;<br>
-If&nbsp;a&nbsp;valid&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the&nbsp;MTZ&nbsp;file&nbsp;already&nbsp;exists&nbsp;locally,&nbsp;the<br>
-download&nbsp;is&nbsp;skipped&nbsp;and&nbsp;the&nbsp;cached&nbsp;path&nbsp;is&nbsp;returned&nbsp;directly.<br>
+If&nbsp;a&nbsp;valid&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the&nbsp;MTZ&nbsp;file&nbsp;already&nbsp;exists&nbsp;locally&nbsp;and<br>
+``use_cache``&nbsp;is&nbsp;``True``,&nbsp;the&nbsp;download&nbsp;is&nbsp;skipped&nbsp;and&nbsp;the&nbsp;cached&nbsp;path<br>
+is&nbsp;returned&nbsp;directly.<br>
 &nbsp;<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MTZ&nbsp;file&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-downloading&nbsp;it.&nbsp;Defaults<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;str&nbsp;or&nbsp;None:&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;the&nbsp;downloaded&nbsp;(or&nbsp;cached)<br>
@@ -54,7 +58,7 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.http_cache.download_if_missing`)&nbsp;and&nbsp;reported&nbsp;via<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``&nbsp;instead&nbsp;of<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
- <dl><dt><a name="-get_ED_data"><strong>get_ED_data</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;per-residue&nbsp;RSR/RSCC&nbsp;electron-density&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
+ <dl><dt><a name="-get_ED_data"><strong>get_ED_data</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Fetch&nbsp;per-residue&nbsp;RSR/RSCC&nbsp;electron-density&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
 &nbsp;<br>
 Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDB-REDO&nbsp;``*_final.json``&nbsp;file&nbsp;for<br>
 the&nbsp;given&nbsp;entry,&nbsp;then&nbsp;parses&nbsp;it&nbsp;into&nbsp;a&nbsp;per-residue&nbsp;dictionary&nbsp;of<br>
@@ -63,6 +67,9 @@ density-fit&nbsp;statistics.<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;file&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-downloading&nbsp;it.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;None:&nbsp;A&nbsp;dictionary&nbsp;mapping&nbsp;residue&nbsp;key&nbsp;(as&nbsp;produced&nbsp;by<br>
@@ -74,15 +81,18 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Download&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
- <dl><dt><a name="-get_pdbredo_data"><strong>get_pdbredo_data</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;overall&nbsp;structure&nbsp;refinement&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
+ <dl><dt><a name="-get_pdbredo_data"><strong>get_pdbredo_data</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Fetch&nbsp;overall&nbsp;structure&nbsp;refinement&nbsp;statistics&nbsp;from&nbsp;PDB-REDO.<br>
 &nbsp;<br>
-Retrieves&nbsp;(using&nbsp;a&nbsp;local&nbsp;cache&nbsp;when&nbsp;available)&nbsp;the&nbsp;PDB-REDO<br>
-``data.json``&nbsp;file&nbsp;for&nbsp;the&nbsp;given&nbsp;entry&nbsp;and&nbsp;extracts&nbsp;a&nbsp;set&nbsp;of<br>
-structure-level&nbsp;refinement&nbsp;properties&nbsp;from&nbsp;it.<br>
+Retrieves&nbsp;(using&nbsp;a&nbsp;local&nbsp;cache&nbsp;when&nbsp;available&nbsp;and&nbsp;``use_cache``&nbsp;is<br>
+``True``)&nbsp;the&nbsp;PDB-REDO&nbsp;``data.json``&nbsp;file&nbsp;for&nbsp;the&nbsp;given&nbsp;entry&nbsp;and<br>
+extracts&nbsp;a&nbsp;set&nbsp;of&nbsp;structure-level&nbsp;refinement&nbsp;properties&nbsp;from&nbsp;it.<br>
 &nbsp;<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;It&nbsp;is<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;a&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``data.json``&nbsp;file&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-fetching&nbsp;it.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;dict&nbsp;or&nbsp;None:&nbsp;A&nbsp;dictionary&nbsp;compatible&nbsp;with<br>

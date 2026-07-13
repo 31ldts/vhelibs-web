@@ -55,17 +55,26 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Request&nbsp;and&nbsp;I/O&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;on&nbsp;each&nbsp;attempt<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;logged&nbsp;as&nbsp;warnings;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``False``&nbsp;instead<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
- <dl><dt><a name="-download_if_missing"><strong>download_if_missing</strong></a>(url, dest_path, timeout=30, retries=3)</dt><dd><span class="code">Ensure&nbsp;``dest_path``&nbsp;exists&nbsp;locally,&nbsp;downloading&nbsp;``url``&nbsp;if&nbsp;it&nbsp;doesn't.<br>
+ <dl><dt><a name="-download_if_missing"><strong>download_if_missing</strong></a>(url, dest_path, timeout=30, retries=3, use_cache=True)</dt><dd><span class="code">Ensure&nbsp;``dest_path``&nbsp;exists&nbsp;locally,&nbsp;downloading&nbsp;``url``&nbsp;if&nbsp;it&nbsp;doesn't.<br>
 &nbsp;<br>
-A&nbsp;file&nbsp;is&nbsp;considered&nbsp;already&nbsp;cached&nbsp;if&nbsp;it&nbsp;exists&nbsp;and&nbsp;is&nbsp;non-empty;&nbsp;in<br>
-that&nbsp;case&nbsp;no&nbsp;network&nbsp;request&nbsp;is&nbsp;made&nbsp;at&nbsp;all.<br>
+A&nbsp;file&nbsp;is&nbsp;considered&nbsp;already&nbsp;cached&nbsp;if&nbsp;``use_cache``&nbsp;is&nbsp;``True``&nbsp;and&nbsp;it<br>
+exists&nbsp;and&nbsp;is&nbsp;non-empty;&nbsp;in&nbsp;that&nbsp;case&nbsp;no&nbsp;network&nbsp;request&nbsp;is&nbsp;made&nbsp;at<br>
+all.&nbsp;When&nbsp;``use_cache``&nbsp;is&nbsp;``False``,&nbsp;this&nbsp;always&nbsp;re-downloads&nbsp;and<br>
+overwrites&nbsp;``dest_path``&nbsp;—&nbsp;via&nbsp;the&nbsp;exact&nbsp;same&nbsp;code&nbsp;path&nbsp;(and&nbsp;log&nbsp;line)<br>
+used&nbsp;when&nbsp;the&nbsp;file&nbsp;is&nbsp;simply&nbsp;missing,&nbsp;so&nbsp;callers&nbsp;get&nbsp;identical<br>
+logging/behaviour&nbsp;whether&nbsp;the&nbsp;cache&nbsp;was&nbsp;disabled&nbsp;or&nbsp;the&nbsp;file&nbsp;was&nbsp;never<br>
+there&nbsp;in&nbsp;the&nbsp;first&nbsp;place.<br>
 &nbsp;<br>
 Args:<br>
-&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;download&nbsp;if&nbsp;``dest_path``&nbsp;is&nbsp;missing&nbsp;or&nbsp;empty.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;download&nbsp;if&nbsp;``dest_path``&nbsp;is&nbsp;missing,&nbsp;empty,&nbsp;or<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``use_cache``&nbsp;is&nbsp;``False``.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;dest_path&nbsp;(str):&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;check/write.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Per-request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``30``.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;retries&nbsp;(int,&nbsp;optional):&nbsp;Maximum&nbsp;download&nbsp;attempts.&nbsp;Defaults&nbsp;to&nbsp;``3``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing,&nbsp;non-empty<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``dest_path``&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-downloading.&nbsp;Defaults<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;bool:&nbsp;``True``&nbsp;if&nbsp;``dest_path``&nbsp;is&nbsp;usable&nbsp;afterwards&nbsp;(already<br>
@@ -114,12 +123,14 @@ Args:<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;str:&nbsp;Path&nbsp;to&nbsp;``{cachedir_root}/{pdbid.lower()}``,&nbsp;guaranteed&nbsp;to&nbsp;exist.</span></dd></dl>
- <dl><dt><a name="-fetch_json"><strong>fetch_json</strong></a>(url, cache_path, timeout=30)</dt><dd><span class="code">Return&nbsp;parsed&nbsp;JSON&nbsp;for&nbsp;``url``,&nbsp;using&nbsp;``cache_path``&nbsp;as&nbsp;an&nbsp;on-disk&nbsp;cache.<br>
+ <dl><dt><a name="-fetch_json"><strong>fetch_json</strong></a>(url, cache_path, timeout=30, use_cache=True)</dt><dd><span class="code">Return&nbsp;parsed&nbsp;JSON&nbsp;for&nbsp;``url``,&nbsp;using&nbsp;``cache_path``&nbsp;as&nbsp;an&nbsp;on-disk&nbsp;cache.<br>
 &nbsp;<br>
-If&nbsp;a&nbsp;valid&nbsp;cached&nbsp;copy&nbsp;exists&nbsp;at&nbsp;``cache_path``&nbsp;it&nbsp;is&nbsp;loaded&nbsp;and<br>
-returned&nbsp;directly,&nbsp;with&nbsp;no&nbsp;network&nbsp;request.&nbsp;Otherwise&nbsp;``url``&nbsp;is<br>
-fetched&nbsp;with&nbsp;a&nbsp;plain&nbsp;GET,&nbsp;the&nbsp;parsed&nbsp;JSON&nbsp;is&nbsp;cached&nbsp;to&nbsp;``cache_path``<br>
-(best&nbsp;effort)&nbsp;and&nbsp;returned.<br>
+If&nbsp;``use_cache``&nbsp;is&nbsp;``True``&nbsp;and&nbsp;a&nbsp;valid&nbsp;cached&nbsp;copy&nbsp;exists&nbsp;at<br>
+``cache_path``&nbsp;it&nbsp;is&nbsp;loaded&nbsp;and&nbsp;returned&nbsp;directly,&nbsp;with&nbsp;no&nbsp;network<br>
+request.&nbsp;Otherwise&nbsp;``url``&nbsp;is&nbsp;fetched&nbsp;with&nbsp;a&nbsp;plain&nbsp;GET&nbsp;—&nbsp;via&nbsp;the&nbsp;exact<br>
+same&nbsp;code&nbsp;path&nbsp;whether&nbsp;the&nbsp;cache&nbsp;was&nbsp;empty&nbsp;or&nbsp;``use_cache``&nbsp;was<br>
+``False``&nbsp;—&nbsp;the&nbsp;parsed&nbsp;JSON&nbsp;is&nbsp;cached&nbsp;to&nbsp;``cache_path``&nbsp;(best&nbsp;effort,<br>
+overwriting&nbsp;any&nbsp;previous&nbsp;copy)&nbsp;and&nbsp;returned.<br>
 &nbsp;<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;GET&nbsp;and&nbsp;parse&nbsp;as&nbsp;JSON.<br>
@@ -127,6 +138,9 @@ Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and&nbsp;to&nbsp;write&nbsp;a&nbsp;freshly-fetched&nbsp;one.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``30``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing&nbsp;cached&nbsp;copy&nbsp;at<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``cache_path``&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-fetching.&nbsp;Defaults<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;The&nbsp;parsed&nbsp;JSON&nbsp;value,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;there&nbsp;is&nbsp;no&nbsp;usable&nbsp;cache&nbsp;and<br>

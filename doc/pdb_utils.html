@@ -38,17 +38,21 @@
 <td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
     
 <tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
-<td class="singlecolumn"><dl><dt><a name="-get_custom_report"><strong>get_custom_report</strong></a>(pdbid)</dt><dd><span class="code">Fetch&nbsp;structure&nbsp;refinement/metadata&nbsp;statistics&nbsp;from&nbsp;the&nbsp;RCSB&nbsp;REST&nbsp;API.<br>
+<td class="singlecolumn"><dl><dt><a name="-get_custom_report"><strong>get_custom_report</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Fetch&nbsp;structure&nbsp;refinement/metadata&nbsp;statistics&nbsp;from&nbsp;the&nbsp;RCSB&nbsp;REST&nbsp;API.<br>
 &nbsp;<br>
-Retrieves&nbsp;(using&nbsp;a&nbsp;local&nbsp;cache&nbsp;when&nbsp;available)&nbsp;the&nbsp;RCSB&nbsp;entry&nbsp;data&nbsp;for<br>
-the&nbsp;given&nbsp;PDB&nbsp;entry&nbsp;and&nbsp;extracts&nbsp;a&nbsp;set&nbsp;of&nbsp;refinement&nbsp;and&nbsp;unit-cell<br>
-statistics&nbsp;from&nbsp;it.&nbsp;Every&nbsp;extracted&nbsp;value&nbsp;has&nbsp;a&nbsp;safe&nbsp;fallback,&nbsp;so&nbsp;a<br>
-missing&nbsp;or&nbsp;null&nbsp;field&nbsp;never&nbsp;causes&nbsp;the&nbsp;whole&nbsp;entry&nbsp;to&nbsp;fail.<br>
+Retrieves&nbsp;(using&nbsp;a&nbsp;local&nbsp;cache&nbsp;when&nbsp;available&nbsp;and&nbsp;``use_cache``&nbsp;is<br>
+``True``)&nbsp;the&nbsp;RCSB&nbsp;entry&nbsp;data&nbsp;for&nbsp;the&nbsp;given&nbsp;PDB&nbsp;entry&nbsp;and&nbsp;extracts&nbsp;a<br>
+set&nbsp;of&nbsp;refinement&nbsp;and&nbsp;unit-cell&nbsp;statistics&nbsp;from&nbsp;it.&nbsp;Every&nbsp;extracted<br>
+value&nbsp;has&nbsp;a&nbsp;safe&nbsp;fallback,&nbsp;so&nbsp;a&nbsp;missing&nbsp;or&nbsp;null&nbsp;field&nbsp;never&nbsp;causes&nbsp;the<br>
+whole&nbsp;entry&nbsp;to&nbsp;fail.<br>
 &nbsp;<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.&nbsp;Case&nbsp;is<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;normalized&nbsp;internally&nbsp;(upper-cased&nbsp;for&nbsp;the&nbsp;returned&nbsp;dict&nbsp;key,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;for&nbsp;the&nbsp;API&nbsp;request&nbsp;URL).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;a&nbsp;cached&nbsp;response&nbsp;for&nbsp;this<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;entry&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-querying&nbsp;the&nbsp;RCSB&nbsp;API.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;dict:&nbsp;A&nbsp;dictionary&nbsp;of&nbsp;the&nbsp;form&nbsp;``{PDBID:&nbsp;rowdict}``&nbsp;where<br>
@@ -65,17 +69,21 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Fetch,&nbsp;cache,&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reported&nbsp;via&nbsp;the&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``{}``<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
- <dl><dt><a name="-get_pdb_file"><strong>get_pdb_file</strong></a>(pdbcode, pdb_redo=False)</dt><dd><span class="code">Download&nbsp;(and&nbsp;cache)&nbsp;the&nbsp;mmCIF&nbsp;structure&nbsp;file&nbsp;for&nbsp;a&nbsp;PDB&nbsp;entry.<br>
+ <dl><dt><a name="-get_pdb_file"><strong>get_pdb_file</strong></a>(pdbcode, pdb_redo=False, use_cache=True)</dt><dd><span class="code">Download&nbsp;(and&nbsp;cache)&nbsp;the&nbsp;mmCIF&nbsp;structure&nbsp;file&nbsp;for&nbsp;a&nbsp;PDB&nbsp;entry.<br>
 &nbsp;<br>
 Fetches&nbsp;the&nbsp;mmCIF&nbsp;file&nbsp;either&nbsp;from&nbsp;the&nbsp;standard&nbsp;RCSB&nbsp;file&nbsp;archive&nbsp;or,<br>
 if&nbsp;requested,&nbsp;from&nbsp;PDB-REDO's&nbsp;re-refined&nbsp;coordinate&nbsp;set.&nbsp;If&nbsp;a&nbsp;valid<br>
-cached&nbsp;copy&nbsp;already&nbsp;exists&nbsp;locally,&nbsp;the&nbsp;download&nbsp;is&nbsp;skipped.<br>
+cached&nbsp;copy&nbsp;already&nbsp;exists&nbsp;locally&nbsp;and&nbsp;``use_cache``&nbsp;is&nbsp;``True``,&nbsp;the<br>
+download&nbsp;is&nbsp;skipped.<br>
 &nbsp;<br>
 Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdbcode&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;fetch.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;pdb_redo&nbsp;(bool,&nbsp;optional):&nbsp;If&nbsp;``True``,&nbsp;download&nbsp;the&nbsp;PDB-REDO<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;re-refined&nbsp;``.cif``&nbsp;file&nbsp;instead&nbsp;of&nbsp;the&nbsp;standard&nbsp;RCSB<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``.cif.gz``&nbsp;file.&nbsp;Defaults&nbsp;to&nbsp;``False``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing&nbsp;cached&nbsp;copy&nbsp;of&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;file&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of&nbsp;re-downloading&nbsp;it.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``True``.<br>
 &nbsp;<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;str:&nbsp;Local&nbsp;filesystem&nbsp;path&nbsp;to&nbsp;the&nbsp;downloaded&nbsp;(or&nbsp;cached)&nbsp;mmCIF<br>
