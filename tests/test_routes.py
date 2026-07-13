@@ -122,6 +122,71 @@ class TestIndexRoute:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/blacklist
+# ---------------------------------------------------------------------------
+
+class TestBlacklistDefaultsRoute:
+    def test_returns_built_in_entries(self, client):
+        resp = client.get("/api/blacklist")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "entries" in data
+        assert isinstance(data["entries"], list)
+        assert len(data["entries"]) > 0
+        assert all(set(e) == {"code", "name", "category"} for e in data["entries"])
+
+    def test_matches_cofactors_get_default_entries(self, client):
+        import core.cofactors as cofactors
+        resp = client.get("/api/blacklist")
+        assert resp.get_json()["entries"] == cofactors.get_default_entries()
+
+
+# ---------------------------------------------------------------------------
+# POST /api/blacklist/parse
+# ---------------------------------------------------------------------------
+
+class TestBlacklistParseRoute:
+    def test_missing_text_returns_400(self, client):
+        resp = client.post("/api/blacklist/parse", json={})
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_blank_text_returns_400(self, client):
+        resp = client.post("/api/blacklist/parse", json={"text": "   "})
+        assert resp.status_code == 400
+
+    def test_text_with_no_parseable_entries_returns_400(self, client):
+        resp = client.post("/api/blacklist/parse", json={"text": "# just a comment\n\n"})
+        assert resp.status_code == 400
+        assert "No valid entries" in resp.get_json()["error"]
+
+    def test_valid_simple_format_returns_entries(self, client):
+        resp = client.post("/api/blacklist/parse", json={"text": "ABC,Some ligand\nDEF"})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ligand_blacklist"] == {"ABC": "Some ligand", "DEF": "DEF"}
+        assert data["metals"] == {}
+        codes = {(e["code"], e["category"]) for e in data["entries"]}
+        assert ("ABC", "blacklist") in codes
+        assert ("DEF", "blacklist") in codes
+
+    def test_valid_sectioned_format_returns_both_categories(self, client):
+        text = "[Blacklist]\nBB,Blacklisted\n[Non-propagating]\nMM,A metal\n"
+        resp = client.post("/api/blacklist/parse", json={"text": text})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ligand_blacklist"] == {"BB": "Blacklisted"}
+        assert data["metals"] == {"MM": "A metal"}
+
+    def test_entries_are_sorted_by_category_then_code(self, client):
+        text = "[Blacklist]\nZZ,Z entry\nAA,A entry\n[Non-propagating]\nYY,Y metal\n"
+        resp = client.post("/api/blacklist/parse", json={"text": text})
+        data = resp.get_json()
+        keys = [(e["category"], e["code"]) for e in data["entries"]]
+        assert keys == sorted(keys)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/analyse
 # ---------------------------------------------------------------------------
 
@@ -258,6 +323,107 @@ class TestAnalyseRoute:
         results = {r["pdbid"]: r for r in job["results"]}
         assert results["1cbs"] == {"pdbid": "1cbs", "uniprot": None}
         assert results["bad1"] == {"pdbid": "bad1", "error": "boom", "uniprot": None}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/analyse — per-request blacklist customization
+# (core.cofactors.build_effective_lists forwarding)
+# ---------------------------------------------------------------------------
+
+class TestAnalyseBlacklistCustomization:
+    @patch("core.rsr_core.parse_binding_site")
+    def test_default_blacklist_used_when_no_customization_given(self, mock_parse, client):
+        import core.cofactors as cofactors
+        captured_cfg = {}
+
+        def fake_parse(pdbid, cfg):
+            captured_cfg["cfg"] = cfg
+            return {"pdbid": pdbid}
+
+        mock_parse.side_effect = fake_parse
+        resp = client.post("/api/analyse", json={"pdbids": "1cbs"})
+        wait_for_job(resp.get_json()["job_id"])
+
+        cfg = captured_cfg["cfg"]
+        assert cfg.metals == cofactors.DEFAULT_METALS
+        assert cfg.ligand_blacklist == cofactors.DEFAULT_LIGAND_BLACKLIST
+
+    @patch("core.rsr_core.parse_binding_site")
+    def test_disabled_codes_are_forwarded_and_removed(self, mock_parse, client):
+        captured_cfg = {}
+
+        def fake_parse(pdbid, cfg):
+            captured_cfg["cfg"] = cfg
+            return {"pdbid": pdbid}
+
+        mock_parse.side_effect = fake_parse
+        resp = client.post("/api/analyse", json={
+            "pdbids": "1cbs",
+            "blacklist": {"disabled": ["HOH", "ZN"]},
+        })
+        wait_for_job(resp.get_json()["job_id"])
+
+        cfg = captured_cfg["cfg"]
+        assert "HOH" not in cfg.ligand_blacklist
+        assert "ZN" not in cfg.metals
+        # Unrelated entries stay untouched.
+        assert "SO4" in cfg.ligand_blacklist
+
+    @patch("core.rsr_core.parse_binding_site")
+    def test_custom_entries_are_forwarded(self, mock_parse, client):
+        captured_cfg = {}
+
+        def fake_parse(pdbid, cfg):
+            captured_cfg["cfg"] = cfg
+            return {"pdbid": pdbid}
+
+        mock_parse.side_effect = fake_parse
+        resp = client.post("/api/analyse", json={
+            "pdbids": "1cbs",
+            "blacklist": {"custom": [{"code": "XYZ", "name": "Custom ligand", "category": "blacklist"}]},
+        })
+        wait_for_job(resp.get_json()["job_id"])
+
+        cfg = captured_cfg["cfg"]
+        assert cfg.ligand_blacklist["XYZ"] == "Custom ligand"
+
+    @patch("core.rsr_core.parse_binding_site")
+    def test_replace_fully_overrides_default_lists(self, mock_parse, client):
+        captured_cfg = {}
+
+        def fake_parse(pdbid, cfg):
+            captured_cfg["cfg"] = cfg
+            return {"pdbid": pdbid}
+
+        mock_parse.side_effect = fake_parse
+        resp = client.post("/api/analyse", json={
+            "pdbids": "1cbs",
+            "blacklist": {"replace": {
+                "metals": {"AA": "Custom metal"},
+                "ligand_blacklist": {"BB": "Custom ligand"},
+            }},
+        })
+        wait_for_job(resp.get_json()["job_id"])
+
+        cfg = captured_cfg["cfg"]
+        assert cfg.metals == {"AA": "Custom metal"}
+        assert cfg.ligand_blacklist == {"BB": "Custom ligand"}
+
+    @patch("core.rsr_core.parse_binding_site")
+    def test_per_request_customization_does_not_mutate_shared_module_state(self, mock_parse, client):
+        import core.cofactors as cofactors
+        before_metals = dict(cofactors.metals)
+        before_blacklist = dict(cofactors.ligand_blacklist)
+
+        mock_parse.return_value = {"pdbid": "1cbs"}
+        resp = client.post("/api/analyse", json={
+            "pdbids": "1cbs",
+            "blacklist": {"disabled": ["ZN"], "custom": [{"code": "XYZ"}]},
+        })
+        wait_for_job(resp.get_json()["job_id"])
+
+        assert cofactors.metals == before_metals
+        assert cofactors.ligand_blacklist == before_blacklist
 
 
 # ---------------------------------------------------------------------------

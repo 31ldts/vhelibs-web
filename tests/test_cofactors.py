@@ -157,3 +157,208 @@ class TestLoadLists:
         result = cofactors.load_lists(str(target))
         assert result == 0
         assert cofactors.ligand_blacklist == {"BB": "Blacklisted"}
+
+
+# ---------------------------------------------------------------------------
+# get_default_entries
+# ---------------------------------------------------------------------------
+
+class TestGetDefaultEntries:
+    def test_returns_list_of_dicts_with_expected_keys(self):
+        entries = cofactors.get_default_entries()
+        assert isinstance(entries, list)
+        assert len(entries) > 0
+        assert all(set(e) == {"code", "name", "category"} for e in entries)
+        assert all(e["category"] in ("blacklist", "metal") for e in entries)
+
+    def test_skips_empty_code_blacklist_entry(self):
+        # DEFAULT_LIGAND_BLACKLIST[""] is a real (odd) entry, but it has
+        # nothing meaningful to show/toggle in the UI, so it's excluded.
+        entries = cofactors.get_default_entries()
+        assert not any(e["code"] == "" for e in entries)
+
+    def test_includes_known_blacklist_and_metal_entries(self):
+        by_key = {(e["code"], e["category"]): e["name"] for e in cofactors.get_default_entries()}
+        assert by_key[("HOH", "blacklist")] == "Water"
+        assert by_key[("ZN", "metal")] == "Zinc"
+
+    def test_sorted_by_category_then_code(self):
+        entries = cofactors.get_default_entries()
+        keys = [(e["category"], e["code"]) for e in entries]
+        assert keys == sorted(keys)
+
+    def test_total_count_matches_defaults_minus_empty_key(self):
+        entries = cofactors.get_default_entries()
+        expected = (len(cofactors.DEFAULT_LIGAND_BLACKLIST) - 1) + len(cofactors.DEFAULT_METALS)
+        assert len(entries) == expected
+
+    def test_reflects_builtin_defaults_not_mutated_module_globals(self):
+        # get_default_entries is documented to always reflect the built-in
+        # DEFAULT_* snapshots, never a single user's runtime customization
+        # applied via update_lists().
+        cofactors.update_lists({"XX": "Should not appear"}, {"YY": "Should not appear"})
+        entries = cofactors.get_default_entries()
+        codes = {e["code"] for e in entries}
+        assert "XX" not in codes
+        assert "YY" not in codes
+
+
+# ---------------------------------------------------------------------------
+# build_effective_lists
+# ---------------------------------------------------------------------------
+
+class TestBuildEffectiveLists:
+    def test_no_args_returns_copies_of_defaults(self):
+        m, lb = cofactors.build_effective_lists()
+        assert m == cofactors.DEFAULT_METALS
+        assert lb == cofactors.DEFAULT_LIGAND_BLACKLIST
+        # Must be fresh instances so callers can't mutate the shared defaults.
+        assert m is not cofactors.DEFAULT_METALS
+        assert lb is not cofactors.DEFAULT_LIGAND_BLACKLIST
+
+    def test_disabled_codes_are_removed_case_insensitively(self):
+        m, lb = cofactors.build_effective_lists(disabled_codes=["zn", " HOH "])
+        assert "ZN" not in m
+        assert "HOH" not in lb
+        # Untouched entries remain.
+        assert "MG" in m
+        assert "SO4" in lb
+
+    def test_unknown_disabled_code_is_a_noop(self):
+        m, lb = cofactors.build_effective_lists(disabled_codes=["NOPE"])
+        assert m == cofactors.DEFAULT_METALS
+        assert lb == cofactors.DEFAULT_LIGAND_BLACKLIST
+
+    def test_custom_entry_defaults_to_blacklist_category_and_code_as_name(self):
+        m, lb = cofactors.build_effective_lists(custom_entries=[{"code": "xyz"}])
+        assert lb["XYZ"] == "XYZ"
+        assert "XYZ" not in m
+
+    def test_custom_entry_with_metal_category(self):
+        m, lb = cofactors.build_effective_lists(
+            custom_entries=[{"code": "xx", "name": "Test Metal", "category": "metal"}]
+        )
+        assert m["XX"] == "Test Metal"
+
+    def test_custom_entries_applied_after_disabled_can_reintroduce_a_code(self):
+        m, lb = cofactors.build_effective_lists(
+            disabled_codes=["hoh"],
+            custom_entries=[{"code": "HOH", "name": "Reintroduced", "category": "blacklist"}],
+        )
+        assert lb["HOH"] == "Reintroduced"
+
+    def test_custom_entry_missing_code_is_skipped(self):
+        m, lb = cofactors.build_effective_lists(custom_entries=[{"name": "no code"}])
+        assert m == cofactors.DEFAULT_METALS
+        assert lb == cofactors.DEFAULT_LIGAND_BLACKLIST
+
+    def test_replace_fully_replaces_defaults(self):
+        m, lb = cofactors.build_effective_lists(
+            replace={"metals": {"aa": "Custom metal"}, "ligand_blacklist": {"bb": "Custom ligand"}}
+        )
+        assert m == {"AA": "Custom metal"}
+        assert lb == {"BB": "Custom ligand"}
+
+    def test_replace_makes_disabled_codes_irrelevant(self):
+        # Starting from an uploaded file already means "use exactly these
+        # entries" — disabled_codes is documented to be ignored in that case.
+        m, lb = cofactors.build_effective_lists(
+            disabled_codes=["aa"], replace={"metals": {"aa": "Custom metal"}}
+        )
+        assert m == {"AA": "Custom metal"}
+
+    def test_replace_with_only_metals_key_leaves_blacklist_empty(self):
+        m, lb = cofactors.build_effective_lists(replace={"metals": {"aa": "Custom"}})
+        assert m == {"AA": "Custom"}
+        assert lb == {}
+
+    def test_replace_with_both_keys_empty_falls_back_to_defaults(self):
+        m, lb = cofactors.build_effective_lists(replace={"metals": {}, "ligand_blacklist": {}})
+        assert m == cofactors.DEFAULT_METALS
+        assert lb == cofactors.DEFAULT_LIGAND_BLACKLIST
+
+    def test_custom_entries_still_applied_on_top_of_replace(self):
+        m, lb = cofactors.build_effective_lists(
+            replace={"metals": {"aa": "Custom"}},
+            custom_entries=[{"code": "bb", "name": "Extra", "category": "metal"}],
+        )
+        assert m == {"AA": "Custom", "BB": "Extra"}
+
+    def test_returned_dicts_are_independent_across_calls(self):
+        m1, _ = cofactors.build_effective_lists()
+        m1["ZZ"] = "mutated"
+        m2, _ = cofactors.build_effective_lists()
+        assert "ZZ" not in m2
+
+
+# ---------------------------------------------------------------------------
+# parse_uploaded_list
+# ---------------------------------------------------------------------------
+
+class TestParseUploadedList:
+    def test_simple_format_code_only_uses_code_as_name(self):
+        m, lb = cofactors.parse_uploaded_list("ABC\nDEF")
+        assert lb == {"ABC": "ABC", "DEF": "DEF"}
+        assert m == {}
+
+    @pytest.mark.parametrize("line,code,name", [
+        ("ABC,Some ligand", "ABC", "Some ligand"),
+        ("DEF;Another", "DEF", "Another"),
+        ("GHI\tTabbed", "GHI", "Tabbed"),
+    ])
+    def test_simple_format_supports_comma_semicolon_and_tab_separators(self, line, code, name):
+        m, lb = cofactors.parse_uploaded_list(line)
+        assert lb[code] == name
+
+    def test_simple_format_ignores_blank_and_comment_lines(self):
+        text = "# a comment\n\nABC,Ligand\n"
+        m, lb = cofactors.parse_uploaded_list(text)
+        assert lb == {"ABC": "Ligand"}
+
+    def test_simple_format_entries_always_categorized_as_blacklist(self):
+        m, lb = cofactors.parse_uploaded_list("ABC,Something")
+        assert "ABC" in lb
+        assert "ABC" not in m
+
+    def test_sectioned_format_routes_rows_to_correct_dict(self):
+        text = "[Blacklist]\nBB,Blacklisted\n[Non-propagating]\nMM,A metal\n"
+        m, lb = cofactors.parse_uploaded_list(text)
+        assert lb == {"BB": "Blacklisted"}
+        assert m == {"MM": "A metal"}
+
+    def test_sectioned_format_ignores_rows_before_first_header(self):
+        text = "ORPHAN,ignored\n[Blacklist]\nBB,Blacklisted\n"
+        m, lb = cofactors.parse_uploaded_list(text)
+        assert lb == {"BB": "Blacklisted"}
+        assert m == {}
+
+    def test_empty_text_returns_empty_dicts(self):
+        m, lb = cofactors.parse_uploaded_list("")
+        assert m == {}
+        assert lb == {}
+
+    def test_code_with_empty_name_falls_back_to_code(self):
+        m, lb = cofactors.parse_uploaded_list("ABC,")
+        assert lb["ABC"] == "ABC"
+
+    def test_codes_are_uppercased(self):
+        m, lb = cofactors.parse_uploaded_list("abc,lower name")
+        assert "ABC" in lb
+        assert "abc" not in lb
+
+    def test_row_with_no_code_before_separator_is_skipped(self):
+        m, lb = cofactors.parse_uploaded_list(",no code here")
+        assert lb == {}
+
+    def test_round_trip_with_dump_lists_output(self, tmp_path):
+        # parse_uploaded_list's "sectioned" branch is documented to accept
+        # exactly what dump_lists() produces (e.g. a previously saved,
+        # re-uploaded file).
+        cofactors.update_lists({"ZZ": "Zinc-like"}, {"AA": "A ligand"})
+        target = tmp_path / "out.csv"
+        cofactors.dump_lists(str(target))
+
+        text = target.read_text()
+        m, lb = cofactors.parse_uploaded_list(text)
+        assert m == {"ZZ": "Zinc-like"}
+        assert lb == {"AA": "A ligand"}

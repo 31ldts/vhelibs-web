@@ -1187,3 +1187,48 @@ class TestAnalysePdbids:
 
     def test_empty_list_returns_empty_results(self):
         assert rsr_core.analyse_pdbids([]) == []
+
+    def test_on_progress_called_once_per_entry_with_final_total(self):
+        calls = []
+
+        def on_progress(completed, total):
+            calls.append((completed, total))
+
+        with patch("core.rsr_core.parse_binding_site") as mock_parse:
+            mock_parse.side_effect = lambda pdbid, cfg: {"pdbid": pdbid}
+            rsr_core.analyse_pdbids(["1cbs", "3dzu", "2xyz"], on_progress=on_progress)
+
+        assert len(calls) == 3
+        # completed values are exactly 1..N, seen exactly once each,
+        # regardless of the order background workers finish in.
+        assert sorted(c for c, _ in calls) == [1, 2, 3]
+        # total is always the full batch size on every call.
+        assert all(t == 3 for _, t in calls)
+
+    def test_on_progress_still_called_when_an_entry_fails(self):
+        calls = []
+
+        def fake_parse(pdbid, cfg):
+            if pdbid == "bad1":
+                raise RuntimeError("kaboom")
+            return {"pdbid": pdbid}
+
+        with patch("core.rsr_core.parse_binding_site", side_effect=fake_parse):
+            rsr_core.analyse_pdbids(
+                ["1cbs", "bad1"], on_progress=lambda completed, total: calls.append((completed, total))
+            )
+
+        assert len(calls) == 2
+        assert sorted(c for c, _ in calls) == [1, 2]
+
+    def test_on_progress_not_required(self):
+        # Default is None; must not raise when omitted.
+        with patch("core.rsr_core.parse_binding_site") as mock_parse:
+            mock_parse.return_value = {"pdbid": "1cbs"}
+            results = rsr_core.analyse_pdbids(["1cbs"])
+        assert results == [{"pdbid": "1cbs"}]
+
+    def test_on_progress_not_called_for_empty_input(self):
+        calls = []
+        rsr_core.analyse_pdbids([], on_progress=lambda c, t: calls.append((c, t)))
+        assert calls == []
