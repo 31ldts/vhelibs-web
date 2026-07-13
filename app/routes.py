@@ -34,6 +34,7 @@ from flask import (
 import core.pdb_utils as pdb_utils
 import core.eds_utils as eds_utils
 import core.pdb_redo_utils as pdb_redo_utils
+import core.cofactors as cofactors
 from core.rsr_core import AnalysisConfig, analyse_pdbids
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,48 @@ def index():
     return render_template("index.html")
 
 
+@bp.route("/api/blacklist")
+def blacklist_defaults():
+    """
+    Return the built-in ligand-blacklist/metal entries (core.cofactors), so
+    the Analysis tab can render them as togglable checkboxes instead of
+    them being invisible/hardcoded. The response never reflects any single
+    user's customization — per-request overrides (unchecked entries, custom
+    additions, or a fully replaced list from an uploaded file) are sent back
+    to the server with each /api/analyse call instead, see that route.
+    """
+    return jsonify({"entries": cofactors.get_default_entries()})
+
+
+@bp.route("/api/blacklist/parse", methods=["POST"])
+def blacklist_parse():
+    """
+    Parse an uploaded blacklist file (sent as raw text) and return it as
+    structured entries, so the frontend can show a preview ("this file
+    defines N blacklist + M metal entries") before the user commits to
+    replacing their current list with it.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    text = data.get("text", "")
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({"error": "The file appears to be empty."}), 400
+
+    metals_dict, blacklist_dict = cofactors.parse_uploaded_list(text)
+    if not metals_dict and not blacklist_dict:
+        return jsonify({"error": "No valid entries found in the file."}), 400
+
+    entries = (
+        [{"code": c, "name": n, "category": "blacklist"} for c, n in blacklist_dict.items()]
+        + [{"code": c, "name": n, "category": "metal"} for c, n in metals_dict.items()]
+    )
+    entries.sort(key=lambda e: (e["category"], e["code"]))
+    return jsonify({
+        "entries": entries,
+        "metals": metals_dict,
+        "ligand_blacklist": blacklist_dict,
+    })
+
+
 @bp.route("/api/analyse", methods=["POST"])
 @_with_cache_dir  # UniProt resolution below also caches to disk, so set this first
 def analyse():
@@ -177,6 +220,16 @@ def analyse():
     def _b(key):
         return bool(data.get(key, False))
 
+    # Per-request blacklist customization. Built fresh for this job only
+    # — never mutates core.cofactors' shared module-level dicts — so 
+    # concurrent jobs from other users/tabs are unaffected.
+    blacklist_cfg = data.get("blacklist") or {}
+    effective_metals, effective_ligand_blacklist = cofactors.build_effective_lists(
+        disabled_codes=blacklist_cfg.get("disabled"),
+        custom_entries=blacklist_cfg.get("custom"),
+        replace=blacklist_cfg.get("replace"),
+    )
+
     cfg = AnalysisConfig(
         rsr_upper=_f("rsr_upper", 0.4),
         rsr_lower=_f("rsr_lower", 0.24),
@@ -195,6 +248,8 @@ def analyse():
         use_dpi=_b("use_dpi"),
         dpi_max=_f("dpi_max", 0.42),
         use_cache=bool(data.get("use_cache", True)),
+        metals=effective_metals,
+        ligand_blacklist=effective_ligand_blacklist,
     )
 
     job_id = str(uuid.uuid4())

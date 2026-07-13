@@ -126,6 +126,76 @@
 
       </div><!-- /panel-grid -->
 
+      <!-- Blacklist card -->
+      <div class="card card-blacklist" style="margin-top:20px">
+        <h2 class="card-title">Ligand blacklist</h2>
+        <p class="th-hint" style="margin-bottom:10px">
+          Components checked here are excluded from ligand consideration (treated as solvent,
+          buffer, crystallisation additive, or metal/ion) instead of being scored as ligands.
+          Uncheck an entry to let it be analysed as a ligand for this run.
+        </p>
+
+        <div class="input-row" style="margin-bottom:10px">
+          <input type="text" id="blacklistSearch" class="th-input" style="max-width:260px"
+            placeholder="Filter by code or name…" />
+          <div style="display:flex; gap:8px">
+            <button type="button" id="blacklistSelectAllBtn" class="btn btn-secondary">Select all</button>
+            <button type="button" id="blacklistSelectNoneBtn" class="btn btn-secondary">Select none</button>
+            <button type="button" id="blacklistResetBtn" class="btn btn-secondary">Restore defaults</button>
+          </div>
+        </div>
+
+        <div class="blacklist-columns">
+          <div class="blacklist-column">
+            <h3 class="blacklist-column-title">Non-ligand blacklist <span id="blacklistCountBlacklist" class="th-hint"></span></h3>
+            <div id="blacklistListBlacklist" class="blacklist-entry-list"></div>
+          </div>
+          <div class="blacklist-column">
+            <h3 class="blacklist-column-title">Metals / ions <span id="blacklistCountMetal" class="th-hint"></span></h3>
+            <div id="blacklistListMetal" class="blacklist-entry-list"></div>
+          </div>
+        </div>
+
+        <details class="advanced-section" open>
+          <summary>Add a custom entry</summary>
+          <div class="input-row mt-8" style="flex-wrap:wrap">
+            <input type="text" id="blacklistNewCode" class="th-input" style="max-width:100px; text-transform:uppercase"
+              placeholder="Code e.g. XYZ" maxlength="8" />
+            <input type="text" id="blacklistNewName" class="th-input" style="flex:1; min-width:160px"
+              placeholder="Description (optional)" />
+            <select id="blacklistNewCategory" class="th-input" style="max-width:160px">
+              <option value="blacklist">Non-ligand blacklist</option>
+              <option value="metal">Metal / ion</option>
+            </select>
+            <button type="button" id="blacklistAddBtn" class="btn btn-secondary">Add</button>
+          </div>
+        </details>
+
+        <details class="advanced-section">
+          <summary>Replace whole list from a file…</summary>
+          <div class="input-row mt-8">
+            <label class="btn btn-secondary" style="cursor:pointer">
+              Choose file…
+              <input type="file" id="blacklistFileInput" accept=".txt,.csv" hidden />
+            </label>
+            <span id="blacklistFileName" class="th-hint"></span>
+          </div>
+          <p class="th-hint mt-8">
+            Accepts a plain list (one code per line, optionally <code>CODE,Description</code>) or a
+            file previously exported with <code>[Blacklist]</code>/<code>[Non-propagating]</code>
+            section headers. This <strong>replaces</strong> the built-in defaults entirely for this
+            session — it doesn't just add to them.
+          </p>
+          <div id="blacklistFilePreview" class="hidden mt-8">
+            <p id="blacklistFilePreviewText" class="th-hint"></p>
+            <div class="input-row" style="margin-top:6px">
+              <button type="button" id="blacklistApplyFileBtn" class="btn btn-primary">Apply this list</button>
+              <button type="button" id="blacklistCancelFileBtn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
       <!-- Progress -->
       <div id="progressArea" class="progress-area hidden">
         <div class="progress-bar-track">

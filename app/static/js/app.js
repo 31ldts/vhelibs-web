@@ -127,6 +127,291 @@ pdbFileInput.addEventListener("change", () => {
   pdbFileInput.value = "";
 });
 
+// ── Ligand blacklist management ───────────────────────────
+// Lets the user see the built-in metal/blacklist tables (previously only
+// visible by reading core/cofactors.py) and toggle, extend, or fully
+// replace them for their own analysis runs. Nothing here mutates any
+// server-side state directly: the effective lists are recomputed by the
+// server per-request from what we send in gatherConfig()'s `blacklist`
+// field (see core.cofactors.build_effective_lists), so concurrent users
+// never affect each other's blacklist. State is kept in localStorage only
+// so a single browser remembers its own customization across reloads.
+
+const BLACKLIST_STORAGE_KEY = "vhelibs_blacklist_v1";
+
+// `activeEntries`: the current base list to show (server defaults, or a
+// user-uploaded replacement) — [{code, name, category}].
+// `disabledCodes`: Set of codes from `activeEntries` the user unchecked.
+// `customEntries`: user-added entries layered on top, each
+//   {code, name, category, enabled}.
+// `replaceDicts`: null, or {metals, ligand_blacklist} when activeEntries
+//   came from an uploaded file (sent to the server as blacklist.replace).
+let blacklistActiveEntries = [];
+let blacklistDisabledCodes = new Set();
+let blacklistCustomEntries = [];
+let blacklistReplaceDicts = null;
+let blacklistPendingUpload = null; // {entries, metals, ligand_blacklist} awaiting Apply/Cancel
+
+function loadBlacklistState() {
+  try {
+    const raw = localStorage.getItem(BLACKLIST_STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    blacklistDisabledCodes = new Set(saved.disabled || []);
+    blacklistCustomEntries = Array.isArray(saved.custom) ? saved.custom : [];
+    blacklistReplaceDicts = saved.replace || null;
+  } catch (e) {
+    // Corrupt/old localStorage payload — ignore and start fresh rather than breaking the page.
+    blacklistDisabledCodes = new Set();
+    blacklistCustomEntries = [];
+    blacklistReplaceDicts = null;
+  }
+}
+
+function saveBlacklistState() {
+  localStorage.setItem(BLACKLIST_STORAGE_KEY, JSON.stringify({
+    disabled: Array.from(blacklistDisabledCodes),
+    custom: blacklistCustomEntries,
+    replace: blacklistReplaceDicts,
+  }));
+}
+
+function entriesFromReplaceDicts(dicts) {
+  const entries = [];
+  Object.entries(dicts.ligand_blacklist || {}).forEach(([code, name]) => entries.push({ code, name, category: "blacklist" }));
+  Object.entries(dicts.metals || {}).forEach(([code, name]) => entries.push({ code, name, category: "metal" }));
+  return entries;
+}
+
+function fetchBlacklistDefaults() {
+  // If the user previously replaced the list from a file, keep showing
+  // that instead of re-fetching the server defaults over it.
+  if (blacklistReplaceDicts) {
+    blacklistActiveEntries = entriesFromReplaceDicts(blacklistReplaceDicts);
+    renderBlacklist();
+    return;
+  }
+  fetch("/api/blacklist")
+    .then(r => r.json())
+    .then(data => {
+      blacklistActiveEntries = data.entries || [];
+      renderBlacklist();
+    })
+    .catch(() => {
+      const list = document.getElementById("blacklistListBlacklist");
+      const metal = document.getElementById("blacklistListMetal");
+      const msg = '<p class="blacklist-entry-empty">Could not load the blacklist from the server.</p>';
+      if (list) list.innerHTML = msg;
+      if (metal) metal.innerHTML = "";
+    });
+}
+
+function makeBlacklistRow(entry, isCustom) {
+  const row = document.createElement("label");
+  row.className = "blacklist-entry" + (isCustom ? " is-custom" : "");
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = isCustom ? !!entry.enabled : !blacklistDisabledCodes.has(entry.code);
+  checkbox.addEventListener("change", () => {
+    if (isCustom) {
+      entry.enabled = checkbox.checked;
+    } else if (checkbox.checked) {
+      blacklistDisabledCodes.delete(entry.code);
+    } else {
+      blacklistDisabledCodes.add(entry.code);
+    }
+    saveBlacklistState();
+  });
+
+  const code = document.createElement("span");
+  code.className = "blacklist-entry-code";
+  code.textContent = entry.code;
+
+  const name = document.createElement("span");
+  name.className = "blacklist-entry-name";
+  name.title = entry.name;
+  name.textContent = entry.name;
+
+  row.appendChild(checkbox);
+  row.appendChild(code);
+  row.appendChild(name);
+
+  if (isCustom) {
+    const tag = document.createElement("span");
+    tag.className = "blacklist-entry-custom-tag";
+    tag.textContent = "custom";
+    row.appendChild(tag);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "blacklist-entry-remove";
+    removeBtn.textContent = "✕";
+    removeBtn.title = "Remove this custom entry";
+    removeBtn.addEventListener("click", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      blacklistCustomEntries = blacklistCustomEntries.filter(e => e !== entry);
+      saveBlacklistState();
+      renderBlacklist();
+    });
+    row.appendChild(removeBtn);
+  }
+
+  return row;
+}
+
+function renderBlacklist() {
+  const search = (document.getElementById("blacklistSearch").value || "").trim().toLowerCase();
+  const matches = e => !search || e.code.toLowerCase().includes(search) || (e.name || "").toLowerCase().includes(search);
+
+  const columns = {
+    blacklist: { container: document.getElementById("blacklistListBlacklist"), count: document.getElementById("blacklistCountBlacklist") },
+    metal:     { container: document.getElementById("blacklistListMetal"),     count: document.getElementById("blacklistCountMetal") },
+  };
+
+  Object.entries(columns).forEach(([category, { container, count }]) => {
+    container.innerHTML = "";
+    const active = blacklistActiveEntries.filter(e => e.category === category && matches(e));
+    const custom = blacklistCustomEntries.filter(e => e.category === category && matches(e));
+
+    let enabledCount = 0;
+    active.forEach(e => {
+      if (!blacklistDisabledCodes.has(e.code)) enabledCount++;
+      container.appendChild(makeBlacklistRow(e, false));
+    });
+    custom.forEach(e => {
+      if (e.enabled) enabledCount++;
+      container.appendChild(makeBlacklistRow(e, true));
+    });
+
+    if (!active.length && !custom.length) {
+      container.innerHTML = '<p class="blacklist-entry-empty">No entries match.</p>';
+    }
+    const total = active.length + custom.length;
+    count.textContent = total ? `(${enabledCount}/${total} active)` : "";
+  });
+}
+
+document.getElementById("blacklistSearch").addEventListener("input", renderBlacklist);
+
+document.getElementById("blacklistSelectAllBtn").addEventListener("click", () => {
+  blacklistDisabledCodes.clear();
+  blacklistCustomEntries.forEach(e => { e.enabled = true; });
+  saveBlacklistState();
+  renderBlacklist();
+});
+
+document.getElementById("blacklistSelectNoneBtn").addEventListener("click", () => {
+  blacklistActiveEntries.forEach(e => blacklistDisabledCodes.add(e.code));
+  blacklistCustomEntries.forEach(e => { e.enabled = false; });
+  saveBlacklistState();
+  renderBlacklist();
+});
+
+document.getElementById("blacklistResetBtn").addEventListener("click", () => {
+  blacklistDisabledCodes = new Set();
+  blacklistCustomEntries = [];
+  blacklistReplaceDicts = null;
+  saveBlacklistState();
+  fetchBlacklistDefaults();
+});
+
+// Add a custom entry
+document.getElementById("blacklistAddBtn").addEventListener("click", () => {
+  const codeInput = document.getElementById("blacklistNewCode");
+  const nameInput = document.getElementById("blacklistNewName");
+  const categorySelect = document.getElementById("blacklistNewCategory");
+
+  const code = codeInput.value.trim().toUpperCase();
+  if (!code) { alert("Please enter a component code (e.g. the 3-letter PDB ligand ID)."); return; }
+
+  const allCodes = new Set([
+    ...blacklistActiveEntries.map(e => e.code),
+    ...blacklistCustomEntries.map(e => e.code),
+  ]);
+  if (allCodes.has(code)) { alert(`"${code}" is already in the list.`); return; }
+
+  blacklistCustomEntries.push({
+    code,
+    name: nameInput.value.trim() || code,
+    category: categorySelect.value,
+    enabled: true,
+  });
+  saveBlacklistState();
+  codeInput.value = "";
+  nameInput.value = "";
+  renderBlacklist();
+});
+
+// Replace whole list from an uploaded file
+const blacklistFileInput = document.getElementById("blacklistFileInput");
+const blacklistFileName = document.getElementById("blacklistFileName");
+const blacklistFilePreview = document.getElementById("blacklistFilePreview");
+const blacklistFilePreviewText = document.getElementById("blacklistFilePreviewText");
+
+blacklistFileInput.addEventListener("change", () => {
+  const file = blacklistFileInput.files && blacklistFileInput.files[0];
+  if (!file) return;
+
+  const MAX_SIZE = 1024 * 1024;
+  if (file.size > MAX_SIZE) {
+    alert("File is too large for a blacklist file.");
+    blacklistFileInput.value = "";
+    return;
+  }
+
+  blacklistFileName.textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result || "");
+    fetch("/api/blacklist/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { alert(data.error); return; }
+        blacklistPendingUpload = data;
+        const nBlacklist = Object.keys(data.ligand_blacklist || {}).length;
+        const nMetal = Object.keys(data.metals || {}).length;
+        blacklistFilePreviewText.textContent =
+          `"${file.name}" defines ${nBlacklist} blacklist + ${nMetal} metal entries. ` +
+          `Applying will replace your current list entirely (custom entries you added are kept).`;
+        blacklistFilePreview.classList.remove("hidden");
+      })
+      .catch(() => alert("Could not parse this file."));
+  };
+  reader.onerror = () => alert(`Could not read file "${file.name}".`);
+  reader.readAsText(file);
+  blacklistFileInput.value = "";
+});
+
+document.getElementById("blacklistApplyFileBtn").addEventListener("click", () => {
+  if (!blacklistPendingUpload) return;
+  blacklistReplaceDicts = {
+    metals: blacklistPendingUpload.metals || {},
+    ligand_blacklist: blacklistPendingUpload.ligand_blacklist || {},
+  };
+  blacklistDisabledCodes = new Set(); // fresh start: everything in the new list is enabled
+  blacklistActiveEntries = entriesFromReplaceDicts(blacklistReplaceDicts);
+  blacklistPendingUpload = null;
+  blacklistFilePreview.classList.add("hidden");
+  blacklistFileName.textContent = "";
+  saveBlacklistState();
+  renderBlacklist();
+});
+
+document.getElementById("blacklistCancelFileBtn").addEventListener("click", () => {
+  blacklistPendingUpload = null;
+  blacklistFilePreview.classList.add("hidden");
+  blacklistFileName.textContent = "";
+});
+
+loadBlacklistState();
+fetchBlacklistDefaults();
+
 // Human-readable labels for the numeric fields below, used to build a
 // useful error message if one of them fails to parse (e.g. left empty or
 // containing non-numeric text) instead of silently sending NaN -> null to
@@ -176,6 +461,13 @@ function gatherConfig() {
     use_dpi:         b("chk_dpi"),
     dpi_max:         parseFloat(v("th_dpi_max")),
     use_cache:       b("chk_use_cache"),
+    blacklist: {
+      disabled: Array.from(blacklistDisabledCodes),
+      custom: blacklistCustomEntries
+        .filter(e => e.enabled)
+        .map(({ code, name, category }) => ({ code, name, category })),
+      replace: blacklistReplaceDicts,
+    },
   };
 
   // Only validate the thresholds that are actually "active" for this run:

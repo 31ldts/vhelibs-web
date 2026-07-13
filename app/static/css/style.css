@@ -148,6 +148,47 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
   padding: 4px 0; user-select: none;
 }
 
+/* ── Ligand blacklist card ────────────────────────────── */
+.blacklist-columns {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+@media (max-width: 700px) { .blacklist-columns { grid-template-columns: 1fr; } }
+.blacklist-column-title {
+  font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--clr-muted); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+}
+.blacklist-entry-list {
+  max-height: 260px; overflow-y: auto;
+  background: var(--clr-surface2); border: 1px solid var(--clr-border);
+  border-radius: var(--radius); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.blacklist-entry {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 5px; font-size: .8125rem;
+  cursor: pointer; transition: background .1s;
+}
+.blacklist-entry:hover { background: var(--clr-surface); }
+.blacklist-entry input[type="checkbox"] { flex-shrink: 0; cursor: pointer; }
+.blacklist-entry-code {
+  font-family: monospace; font-weight: 700; min-width: 42px; color: var(--clr-text);
+}
+.blacklist-entry-name {
+  color: var(--clr-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.blacklist-entry.is-custom .blacklist-entry-code { color: var(--clr-accent); }
+.blacklist-entry-custom-tag {
+  font-size: .625rem; text-transform: uppercase; letter-spacing: .5px;
+  background: rgba(91,124,246,.18); color: var(--clr-accent);
+  border-radius: 4px; padding: 1px 5px; flex-shrink: 0;
+}
+.blacklist-entry-remove {
+  flex-shrink: 0; background: none; border: none; color: var(--clr-muted);
+  cursor: pointer; font-size: .9rem; line-height: 1; padding: 2px 4px;
+}
+.blacklist-entry-remove:hover { color: var(--clr-bad); }
+.blacklist-entry-empty { color: var(--clr-muted); font-size: .8125rem; padding: 8px; text-align: center; }
+
 /* ── Progress ─────────────────────────────────────────── */
 .progress-area { margin-top: 24px; }
 .progress-bar-track {

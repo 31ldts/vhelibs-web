@@ -101,6 +101,150 @@ ligand_blacklist = {
     'P22': 'Imported from Twilight',
 }
 
+DEFAULT_METALS = dict(metals)
+DEFAULT_LIGAND_BLACKLIST = dict(ligand_blacklist)
+
+
+def get_default_entries():
+    """Return the built-in blacklist/metal entries as a flat list, for the
+    frontend to render as togglable checkboxes.
+
+    Returns:
+        list: A list of ``{"code": str, "name": str, "category": str}``
+        dicts, one per entry in :data:`DEFAULT_LIGAND_BLACKLIST` (category
+        ``"blacklist"``) and :data:`DEFAULT_METALS` (category ``"metal"``).
+        The empty-string entry in ``DEFAULT_LIGAND_BLACKLIST`` (used
+        internally for unnamed components) is skipped, since it has nothing
+        meaningful to show or toggle in the UI.
+    """
+    entries = []
+    for code, name in DEFAULT_LIGAND_BLACKLIST.items():
+        if not code:
+            continue
+        entries.append({"code": code, "name": name, "category": "blacklist"})
+    for code, name in DEFAULT_METALS.items():
+        entries.append({"code": code, "name": name, "category": "metal"})
+    entries.sort(key=lambda e: (e["category"], e["code"]))
+    return entries
+
+
+def build_effective_lists(disabled_codes=None, custom_entries=None, replace=None):
+    """Compute the metals/ligand_blacklist dicts to use for one analysis run.
+
+    Builds fresh dict instances rather than mutating the module-level
+    ``metals``/``ligand_blacklist`` globals, so concurrent requests/jobs
+    never interfere with each other's blacklist customization.
+
+    Args:
+        disabled_codes (iterable, optional): Component codes (e.g.
+            ``"HOH"``, ``"MG"``) to remove from the built-in defaults before
+            analysis, i.e. entries the user unchecked in the UI. Ignored
+            when ``replace`` is given, since starting from an uploaded file
+            already means "use exactly these entries". Case-insensitive.
+        custom_entries (iterable, optional): Extra entries to add on top,
+            each a dict with keys ``"code"``, ``"name"`` (optional), and
+            ``"category"`` (``"blacklist"`` or ``"metal"``, defaults to
+            ``"blacklist"``). These are applied last, so a custom entry can
+            reintroduce a code that was disabled/omitted above.
+        replace (dict, optional): If given with a non-empty ``"metals"``
+            and/or ``"ligand_blacklist"`` key, those dicts fully replace the
+            built-in defaults as the starting point (e.g. from an uploaded
+            file), instead of starting from :data:`DEFAULT_METALS` /
+            :data:`DEFAULT_LIGAND_BLACKLIST`.
+
+    Returns:
+        tuple: ``(metals_dict, ligand_blacklist_dict)`` — new dict
+        instances safe for a single caller to use and mutate freely.
+
+    Raises:
+        None
+    """
+    disabled = {str(c).strip().upper() for c in (disabled_codes or []) if str(c).strip()}
+
+    if replace and (replace.get("metals") or replace.get("ligand_blacklist")):
+        eff_metals = {str(k).strip().upper(): v for k, v in (replace.get("metals") or {}).items()}
+        eff_blacklist = {str(k).strip().upper(): v for k, v in (replace.get("ligand_blacklist") or {}).items()}
+    else:
+        eff_metals = dict(DEFAULT_METALS)
+        eff_blacklist = dict(DEFAULT_LIGAND_BLACKLIST)
+        for code in disabled:
+            eff_metals.pop(code, None)
+            eff_blacklist.pop(code, None)
+
+    for entry in (custom_entries or []):
+        code = str(entry.get("code", "")).strip().upper()
+        if not code:
+            continue
+        name = str(entry.get("name", "")).strip() or code
+        if entry.get("category") == "metal":
+            eff_metals[code] = name
+        else:
+            eff_blacklist[code] = name
+
+    return eff_metals, eff_blacklist
+
+
+def parse_uploaded_list(text):
+    """Parse a user-uploaded blacklist file into metals/blacklist dicts.
+
+    Supports two formats:
+
+    1. The native :func:`dump_lists` CSV format, with ``[Blacklist]`` and
+       ``[Non-propagating]`` section headers followed by ``code,name`` rows
+       (this is exactly what "Load from file…" -> a file previously saved
+       with :func:`dump_lists` looks like).
+    2. A simple format with no section headers: one entry per line, either
+       ``CODE`` alone or ``CODE,Name`` / ``CODE;Name`` / ``CODE<tab>Name``.
+       Every entry parsed this way is treated as a ``"blacklist"`` category
+       entry, since that's what most users mean by "ligands to ignore";
+       codes meant to be treated as metals can still be added individually
+       via the category selector in the UI, or included under an explicit
+       ``[Non-propagating]`` header.
+
+    Blank lines and lines starting with ``#`` are ignored in both formats.
+
+    Args:
+        text (str): Raw file content to parse.
+
+    Returns:
+        tuple: ``(metals_dict, ligand_blacklist_dict)``. Both are empty
+        dicts if ``text`` contains no parseable rows.
+
+    Raises:
+        None
+    """
+    new_m, new_lb = {}, {}
+    has_sections = "[Blacklist]" in text or "[Non-propagating]" in text
+    d = new_lb if not has_sections else None
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line == "[Blacklist]":
+            d = new_lb
+            continue
+        if line == "[Non-propagating]":
+            d = new_m
+            continue
+        if d is None:
+            continue
+
+        for sep in (",", ";", "\t"):
+            if sep in line:
+                parts = [p.strip() for p in line.split(sep, 1)]
+                break
+        else:
+            parts = [line, ""]
+
+        code = parts[0].strip().upper()
+        if not code:
+            continue
+        name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else code
+        d[code] = name
+
+    return new_m, new_lb
+
 
 def update_lists(new_m=metals, new_lb=ligand_blacklist):
     """Replace the module-level cofactor lookup dictionaries.

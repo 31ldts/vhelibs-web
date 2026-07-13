@@ -60,6 +60,15 @@ class AnalysisConfig:
             When ``False``, every download performed for this run bypasses
             the on-disk cache — see :func:`core.http_cache.download_if_missing`
             and :func:`core.http_cache.fetch_json`.
+        metals (dict): Mapping of component (residue) code to description,
+            used to classify HETATM residues as non-propagating metals/ions
+            rather than ligands. Defaults to :data:`core.cofactors.metals`
+            when not given, so existing callers keep the original
+            hardcoded behaviour.
+        ligand_blacklist (dict): Mapping of component (residue) code to
+            description, used to classify HETATM residues as known
+            solvents/buffers/additives rather than ligands. Defaults to
+            :data:`core.cofactors.ligand_blacklist` when not given.
     """
 
     def __init__(
@@ -81,6 +90,8 @@ class AnalysisConfig:
         dpi_max=0.42,
         pdb_redo=False,
         use_cache=True,
+        metals=None,
+        ligand_blacklist=None,
     ):
         """Initialize an AnalysisConfig with the given tunable parameters.
 
@@ -121,6 +132,12 @@ class AnalysisConfig:
             use_cache (bool, optional): Whether previously downloaded
                 structure/validation files may be reused instead of being
                 re-fetched for this run. Defaults to ``True``.
+            metals (dict, optional): Custom metals/ions lookup table to use
+                instead of :data:`core.cofactors.metals` for this run.
+                Defaults to ``None`` (use the built-in table).
+            ligand_blacklist (dict, optional): Custom blacklist lookup
+                table to use instead of :data:`core.cofactors.ligand_blacklist`
+                for this run. Defaults to ``None`` (use the built-in table).
 
         Returns:
             None
@@ -145,6 +162,8 @@ class AnalysisConfig:
         self.dpi_max = dpi_max
         self.pdb_redo = pdb_redo
         self.use_cache = use_cache
+        self.metals = metals if metals is not None else cofactors.metals
+        self.ligand_blacklist = ligand_blacklist if ligand_blacklist is not None else cofactors.ligand_blacklist
 
 
 # ---------------------------------------------------------------------------
@@ -431,15 +450,16 @@ def _atom_record(atom, comp_id, asym_id, seq_id, is_hetatm):
 
 
 def _file_atom(pdb_atom, comp_id, res_key, is_hetatm, inner_distance,
-               res_atom_dict, ligand_res_atom_dict, notligands):
+               res_atom_dict, ligand_res_atom_dict, notligands,
+               metals, ligand_blacklist):
     """Classify a single, already-built atom into the right atom dict.
 
     Protein/nucleic-acid atoms go to ``res_atom_dict`` (only when
     ``inner_distance`` is truthy, since it means binding-site distances
     will actually be computed). HETATM atoms are: dropped if they belong
     to water; filed into ``res_atom_dict`` (and flagged in ``notligands``)
-    if their residue is a known blacklisted ligand or metal from
-    :mod:`core.cofactors`; otherwise treated as a candidate ligand atom in
+    if their residue is a known blacklisted ligand or metal per ``metals``/
+    ``ligand_blacklist``; otherwise treated as a candidate ligand atom in
     ``ligand_res_atom_dict``.
 
     Args:
@@ -456,6 +476,12 @@ def _file_atom(pdb_atom, comp_id, res_key, is_hetatm, inner_distance,
             ligand atoms; updated in place.
         notligands (dict): Mapping of residue key to exclusion reason;
             updated in place for blacklisted residues.
+        metals (dict): Metals/ions lookup table (component code ->
+            description) to classify against, in place of
+            :data:`core.cofactors.metals`.
+        ligand_blacklist (dict): Blacklist lookup table (component code ->
+            description) to classify against, in place of
+            :data:`core.cofactors.ligand_blacklist`.
 
     Returns:
         None
@@ -469,20 +495,24 @@ def _file_atom(pdb_atom, comp_id, res_key, is_hetatm, inner_distance,
         return
     if comp_id == "HOH":
         return
-    if comp_id in cofactors.ligand_blacklist or comp_id in cofactors.metals:
+    if comp_id in ligand_blacklist or comp_id in metals:
         res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
         notligands[res_key] = "Blacklisted ligand"
     else:
         ligand_res_atom_dict.setdefault(res_key, set()).add(pdb_atom)
 
 
-def _collect_atoms(structure, inner_distance):
+def _collect_atoms(structure, inner_distance, metals, ligand_blacklist):
     """Walk every atom of a parsed structure, classifying and counting it.
 
     Args:
         structure (gemmi.Structure): The parsed mmCIF structure.
         inner_distance (float): Passed through to :func:`_file_atom`; see
             :func:`parse_mmcif_file`.
+        metals (dict): Metals/ions lookup table passed through to
+            :func:`_file_atom`.
+        ligand_blacklist (dict): Blacklist lookup table passed through to
+            :func:`_file_atom`.
 
     Returns:
         tuple: ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands)``
@@ -509,7 +539,8 @@ def _collect_atoms(structure, inner_distance):
                     pdb_atom = PdbAtom(_atom_record(atom, comp_id, asym_id, seq_id, is_hetatm))
                     natoms += pdb_atom.occupancy
                     _file_atom(pdb_atom, comp_id, res_key, is_hetatm, inner_distance,
-                              res_atom_dict, ligand_res_atom_dict, notligands)
+                              res_atom_dict, ligand_res_atom_dict, notligands,
+                              metals, ligand_blacklist)
 
     return natoms, res_atom_dict, ligand_res_atom_dict, notligands
 
@@ -546,7 +577,7 @@ def _extract_covalent_links(structure):
     return links
 
 
-def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
+def parse_mmcif_file(mmciffilepath, pdbid, inner_distance, metals=None, ligand_blacklist=None):
     """Parse an mmCIF file into atom and covalent-link dictionaries.
 
     Parses an mmCIF file (plain or gzip) using gemmi, classifying each
@@ -560,6 +591,13 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
         inner_distance (float): If falsy (e.g. ``0``), protein/nucleic-acid
             atoms are not added to ``res_atom_dict``, skipping binding-site
             distance calculations for non-ligand residues.
+        metals (dict, optional): Metals/ions lookup table (component code
+            -> description) used to classify HETATM residues. Defaults to
+            :data:`core.cofactors.metals` when not given.
+        ligand_blacklist (dict, optional): Blacklist lookup table
+            (component code -> description) used to classify HETATM
+            residues. Defaults to :data:`core.cofactors.ligand_blacklist`
+            when not given.
 
     Returns:
         tuple: On success, a 5-tuple
@@ -585,13 +623,17 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance):
         None: Parsing errors from gemmi are caught internally and
             returned as a 1-tuple error message instead of propagating.
     """
+    metals = cofactors.metals if metals is None else metals
+    ligand_blacklist = cofactors.ligand_blacklist if ligand_blacklist is None else ligand_blacklist
+
     logger.debug("Reading %s", mmciffilepath)
     try:
         structure = gemmi.read_structure(mmciffilepath)
     except Exception as exc:
         return (f"Could not parse mmCIF file {mmciffilepath}: {exc}",)
 
-    natoms, res_atom_dict, ligand_res_atom_dict, notligands = _collect_atoms(structure, inner_distance)
+    natoms, res_atom_dict, ligand_res_atom_dict, notligands = _collect_atoms(
+        structure, inner_distance, metals, ligand_blacklist)
     links = _extract_covalent_links(structure)
 
     return natoms, res_atom_dict, ligand_res_atom_dict, notligands, links
@@ -900,25 +942,28 @@ def group_ligands(ligand_residues, links):
 # Binding-site extraction
 # ---------------------------------------------------------------------------
 
-def _covalent_disqualification(ligandres):
+def _covalent_disqualification(ligandres, metals, ligand_blacklist):
     """Return a disqualification reason for a very close (<2.1 Å) contact.
 
     Args:
         ligandres (str): Residue key of the ligand residue in close
             contact.
+        metals (dict): Metals/ions lookup table to check against, in
+            place of :data:`core.cofactors.metals`.
+        ligand_blacklist (dict): Blacklist lookup table to check against,
+            in place of :data:`core.cofactors.ligand_blacklist`.
 
     Returns:
         str or None: A reason string if ``ligandres``'s component is a
-        known blacklisted ligand or metal (per :mod:`core.cofactors`),
-        else ``None``.
+        known blacklisted ligand or metal, else ``None``.
 
     Raises:
         None
     """
     hetid = ligandres[:3].strip()
-    if hetid in cofactors.ligand_blacklist:
+    if hetid in ligand_blacklist:
         return "Covalently bound to a blacklisted ligand"
-    if hetid in cofactors.metals:
+    if hetid in metals:
         return "Covalently bound to the sequence"
     return None
 
@@ -955,7 +1000,7 @@ def _residues_in_contact_with_ligand_atoms(ligandres, ligand_atoms, res_atom_dic
                 dist = atom | ligandatom
                 if dist <= cfg.inner_distance:
                     if dist < 2.1:
-                        reason = _covalent_disqualification(ligandres)
+                        reason = _covalent_disqualification(ligandres, cfg.metals, cfg.ligand_blacklist)
                         if reason:
                             notligands[ligandres] = reason
                             return set(), reason
@@ -1282,7 +1327,8 @@ def _fill_occupancy_gaps(edd_dict, res_atom_dict, ligand_res_atom_dict):
     return {k.strip(): v for k, v in edd_dict.items() if k.strip() not in bad_res}
 
 
-def _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, notligands):
+def _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, notligands,
+                                     metals, ligand_blacklist):
     """Disqualify ligand residues covalently bound to the protein/metals.
 
     Repeatedly scans ``links`` (mutated in place), removing links that
@@ -1300,6 +1346,10 @@ def _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, 
             atoms; disqualified ligand residues are popped from here.
         notligands (dict): Mapping of residue key to exclusion reason;
             updated in place.
+        metals (dict): Metals/ions lookup table to check against, in
+            place of :data:`core.cofactors.metals`.
+        ligand_blacklist (dict): Blacklist lookup table to check against,
+            in place of :data:`core.cofactors.ligand_blacklist`.
 
     Returns:
         None
@@ -1322,11 +1372,11 @@ def _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, 
             if checklink == 1:
                 if blen and blen >= 2.1:
                     continue
-                if (res1[:3].strip() in cofactors.metals) or (res2[:3].strip() in cofactors.metals):
+                if (res1[:3].strip() in metals) or (res2[:3].strip() in metals):
                     continue
                 if ligres:
-                    if (res1[:3].strip() in cofactors.ligand_blacklist) or \
-                       (res2[:3].strip() in cofactors.ligand_blacklist):
+                    if (res1[:3].strip() in ligand_blacklist) or \
+                       (res2[:3].strip() in ligand_blacklist):
                         notligands[ligres] = "Covalently bound to a blacklisted ligand"
                     else:
                         notligands[ligres] = "Covalently bound to the sequence"
@@ -1601,7 +1651,8 @@ def parse_binding_site(pdbid, cfg=None):
     if not pdbfilepath:
         return {"pdbid": pdbid, "error": "Unable to load PDBx/mmCIF model"}
 
-    parsed = parse_mmcif_file(pdbfilepath, pdbid, cfg.inner_distance)
+    parsed = parse_mmcif_file(pdbfilepath, pdbid, cfg.inner_distance,
+                               metals=cfg.metals, ligand_blacklist=cfg.ligand_blacklist)
     if len(parsed) == 1:
         return {"pdbid": pdbid, "error": str(parsed[0])}
     natoms, res_atom_dict, ligand_res_atom_dict, notligands, links = parsed
@@ -1610,7 +1661,8 @@ def parse_binding_site(pdbid, cfg=None):
 
     # --- Fill occupancy gaps & prune covalently bound ligands ---
     edd_dict = _fill_occupancy_gaps(edd_dict, res_atom_dict, ligand_res_atom_dict)
-    _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, notligands)
+    _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, notligands,
+                                     cfg.metals, cfg.ligand_blacklist)
 
     if not ligand_res_atom_dict:
         return {"pdbid": pdbid, "error": "No ligands found"}
