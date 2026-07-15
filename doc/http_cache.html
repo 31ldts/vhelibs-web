@@ -149,6 +149,29 @@ Returns:<br>
 Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;Request&nbsp;and&nbsp;parsing&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and&nbsp;logged;<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``None``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;them.</span></dd></dl>
+ <dl><dt><a name="-head_exists"><strong>head_exists</strong></a>(url, timeout=15)</dt><dd><span class="code">Check&nbsp;whether&nbsp;``url``&nbsp;exists,&nbsp;without&nbsp;downloading&nbsp;its&nbsp;body.<br>
+&nbsp;<br>
+Issues&nbsp;a&nbsp;single&nbsp;HTTP&nbsp;``HEAD``&nbsp;request.&nbsp;Some&nbsp;servers&nbsp;(e.g.&nbsp;simple<br>
+static&nbsp;file&nbsp;servers&nbsp;that&nbsp;don't&nbsp;implement&nbsp;``HEAD``&nbsp;correctly)&nbsp;reply<br>
+with&nbsp;``405&nbsp;Method&nbsp;Not&nbsp;Allowed``&nbsp;regardless&nbsp;of&nbsp;whether&nbsp;the&nbsp;resource<br>
+exists;&nbsp;in&nbsp;that&nbsp;case&nbsp;this&nbsp;falls&nbsp;back&nbsp;to&nbsp;a&nbsp;streamed&nbsp;``GET``&nbsp;whose<br>
+connection&nbsp;is&nbsp;closed&nbsp;immediately&nbsp;after&nbsp;the&nbsp;status&nbsp;line/headers&nbsp;are<br>
+read,&nbsp;so&nbsp;the&nbsp;response&nbsp;body&nbsp;is&nbsp;never&nbsp;actually&nbsp;downloaded.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;url&nbsp;(str):&nbsp;URL&nbsp;to&nbsp;check.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;timeout&nbsp;(int&nbsp;or&nbsp;float,&nbsp;optional):&nbsp;Request&nbsp;timeout&nbsp;in&nbsp;seconds.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Defaults&nbsp;to&nbsp;``15``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bool:&nbsp;``True``&nbsp;if&nbsp;the&nbsp;server&nbsp;reports&nbsp;the&nbsp;resource&nbsp;exists&nbsp;(any<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``2xx``/``3xx``&nbsp;status),&nbsp;``False``&nbsp;on&nbsp;``404``&nbsp;or&nbsp;any&nbsp;other<br>
+&nbsp;&nbsp;&nbsp;&nbsp;client/server&nbsp;error,&nbsp;and&nbsp;``False``&nbsp;if&nbsp;the&nbsp;request&nbsp;itself&nbsp;fails<br>
+&nbsp;&nbsp;&nbsp;&nbsp;(network&nbsp;error,&nbsp;timeout,&nbsp;etc).<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;and&nbsp;logged;&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;function&nbsp;returns&nbsp;``False``&nbsp;instead&nbsp;of&nbsp;propagating&nbsp;them.</span></dd></dl>
  <dl><dt><a name="-load_cached_json"><strong>load_cached_json</strong></a>(cache_path)</dt><dd><span class="code">Best-effort&nbsp;load&nbsp;of&nbsp;a&nbsp;JSON&nbsp;cache&nbsp;file.<br>
 &nbsp;<br>
 Args:<br>

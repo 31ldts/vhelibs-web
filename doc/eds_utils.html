@@ -63,6 +63,37 @@ Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;keys.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;ValueError:&nbsp;If&nbsp;``box["min"]``&nbsp;or&nbsp;``box["max"]``&nbsp;cannot&nbsp;be&nbsp;unpacked<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;into&nbsp;exactly&nbsp;three&nbsp;coordinate&nbsp;values.</span></dd></dl>
+ <dl><dt><a name="-edm_exists"><strong>edm_exists</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Check&nbsp;whether&nbsp;a&nbsp;full&nbsp;2Fo-Fc&nbsp;electron&nbsp;density&nbsp;map&nbsp;is&nbsp;available&nbsp;for&nbsp;pdbid.<br>
+&nbsp;<br>
+This&nbsp;is&nbsp;a&nbsp;lightweight&nbsp;existence&nbsp;check&nbsp;for&nbsp;the&nbsp;same&nbsp;resource&nbsp;fetched&nbsp;by<br>
+:func:`get_edm`&nbsp;—&nbsp;it&nbsp;never&nbsp;downloads&nbsp;the&nbsp;map&nbsp;itself.&nbsp;Three&nbsp;ways&nbsp;this<br>
+can&nbsp;be&nbsp;answered,&nbsp;cheapest&nbsp;first:<br>
+&nbsp;<br>
+&nbsp;&nbsp;1.&nbsp;The&nbsp;map&nbsp;is&nbsp;already&nbsp;cached&nbsp;on&nbsp;disk&nbsp;(a&nbsp;previous&nbsp;:func:`get_edm`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;call&nbsp;succeeded)&nbsp;→&nbsp;``True``,&nbsp;no&nbsp;network&nbsp;request.<br>
+&nbsp;&nbsp;2.&nbsp;A&nbsp;previous&nbsp;call&nbsp;to&nbsp;this&nbsp;function&nbsp;cached&nbsp;a&nbsp;``True``/``False``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;answer&nbsp;on&nbsp;disk&nbsp;→&nbsp;that&nbsp;cached&nbsp;answer&nbsp;is&nbsp;reused.<br>
+&nbsp;&nbsp;3.&nbsp;Otherwise,&nbsp;a&nbsp;single&nbsp;HTTP&nbsp;``HEAD``&nbsp;request&nbsp;is&nbsp;made&nbsp;against&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;same&nbsp;URL&nbsp;:func:`get_edm`&nbsp;would&nbsp;download&nbsp;from,&nbsp;and&nbsp;the&nbsp;answer&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;cached&nbsp;to&nbsp;disk&nbsp;for&nbsp;next&nbsp;time.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier&nbsp;of&nbsp;the&nbsp;structure&nbsp;to&nbsp;check.&nbsp;It&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;a&nbsp;previously&nbsp;cached&nbsp;answer&nbsp;(or<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;an&nbsp;already-downloaded&nbsp;map&nbsp;file)&nbsp;may&nbsp;be&nbsp;reused&nbsp;instead&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;re-checking.&nbsp;Defaults&nbsp;to&nbsp;``True``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bool:&nbsp;``True``&nbsp;if&nbsp;a&nbsp;2Fo-Fc&nbsp;map&nbsp;is&nbsp;available&nbsp;for&nbsp;this&nbsp;entry,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``False``&nbsp;otherwise&nbsp;(including&nbsp;on&nbsp;network/request&nbsp;failure&nbsp;—&nbsp;an<br>
+&nbsp;&nbsp;&nbsp;&nbsp;inability&nbsp;to&nbsp;confirm&nbsp;existence&nbsp;is&nbsp;treated&nbsp;as&nbsp;"not&nbsp;available").<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None:&nbsp;All&nbsp;request&nbsp;errors&nbsp;are&nbsp;caught&nbsp;internally&nbsp;(via<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`core.http_cache.head_exists`)&nbsp;and&nbsp;reported&nbsp;via&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;module&nbsp;logger;&nbsp;the&nbsp;function&nbsp;returns&nbsp;``False``&nbsp;instead&nbsp;of<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;propagating&nbsp;exceptions.</span></dd></dl>
  <dl><dt><a name="-get_EDS"><strong>get_EDS</strong></a>(pdbid, use_cache=True)</dt><dd><span class="code">Fetch&nbsp;EDS&nbsp;(Electron&nbsp;Density&nbsp;Server)&nbsp;validation&nbsp;statistics&nbsp;from&nbsp;PDBe.<br>
 &nbsp;<br>
 Downloads&nbsp;(and&nbsp;caches&nbsp;on&nbsp;disk)&nbsp;the&nbsp;PDBe&nbsp;validation&nbsp;XML&nbsp;file&nbsp;for&nbsp;the<br>
