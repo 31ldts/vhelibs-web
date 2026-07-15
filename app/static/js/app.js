@@ -813,9 +813,14 @@ function buildResultCard(r) {
         <div>
           <span class="badge badge-${qc2}">Ligand: ${l.ligand_quality}</span>
           <span class="badge badge-${bsQc}" style="margin-left:6px">BS: ${l.binding_site_quality}</span>
+          ${l._manuallyEdited ? `<span class="review-edited-flag" title="Manually reviewed in the 3D Viewer">✎ edited</span>` : ""}
         </div>
         <button class="view-btn" data-pdbid="${esc(r.pdbid)}"
           data-source="${esc(l.source || 'PDB')}"
+          data-ligand-index="${i}"
+          data-ligand-quality="${esc(l.ligand_quality || '')}"
+          data-bs-quality="${esc(l.binding_site_quality || '')}"
+          data-residue-qualities='${escAttr(JSON.stringify(l.residue_qualities || {}))}'
           data-ligands='${escAttr(JSON.stringify(l.ligand_residues))}'
           data-bs='${escAttr(JSON.stringify(l.binding_site_residues))}'
           data-rte='${escAttr(JSON.stringify(l.residues_to_examine || []))}'
@@ -873,19 +878,26 @@ function buildResultCard(r) {
       e.stopPropagation();
       const pdbid  = btn.dataset.pdbid;
       const source = btn.dataset.source || "PDB";
-      let ligands, bs, rte, boxes, atoms;
+      let ligands, bs, rte, boxes, atoms, residueQualities;
       try {
         ligands = JSON.parse(btn.dataset.ligands || "[]");
         bs      = JSON.parse(btn.dataset.bs || "[]");
         rte     = JSON.parse(btn.dataset.rte || "[]");
         boxes   = JSON.parse(btn.dataset.boxes || "{}");
         atoms   = JSON.parse(btn.dataset.atoms || "{}");
+        residueQualities = JSON.parse(btn.dataset.residueQualities || "{}");
       } catch (err) {
         console.error("[VHELIBS] Corrupt residue/box data on View 3D button:", err);
         alert(`Could not open the 3D viewer for ${pdbid.toUpperCase()}: its residue data looks corrupted. Try re-running the analysis.`);
         return;
       }
-      openViewer(pdbid, ligands, bs, rte, boxes, atoms, source);
+      const reviewData = {
+        ligandIndex: Number(btn.dataset.ligandIndex),
+        ligandQuality: btn.dataset.ligandQuality || null,
+        bsQuality: btn.dataset.bsQuality || null,
+        residueQualities,
+      };
+      openViewer(pdbid, ligands, bs, rte, boxes, atoms, source, reviewData);
     });
   });
 
@@ -1114,9 +1126,21 @@ let currentIsovalue = 1.0; // relative sigma units
 
 const molContainer        = document.getElementById("nglContainer"); // id kept for CSS compat
 const viewerPdbInput      = document.getElementById("viewerPdbInput");
-const viewerLigandList    = document.getElementById("viewerLigandList");
-const viewerResiduePicker = document.getElementById("viewerResiduePicker");
 const viewerDensityControls = document.getElementById("viewerDensityControls");
+
+// Quality review panel (right-hand column) — see "Quality review panel" section below.
+const viewerReviewPanel      = document.getElementById("viewerReviewPanel");
+const reviewPanelPlaceholder = document.getElementById("reviewPanelPlaceholder");
+const reviewComponentsSection = document.getElementById("reviewComponentsSection");
+const reviewOverallSection   = document.getElementById("reviewOverallSection");
+const reviewActions          = document.getElementById("reviewActions");
+const reviewComponentsList   = document.getElementById("reviewComponentsList");
+const reviewComponentsEmpty  = document.getElementById("reviewComponentsEmpty");
+const reviewLigandQualityBtns = document.getElementById("reviewLigandQualityBtns");
+const reviewBsQualityBtns     = document.getElementById("reviewBsQualityBtns");
+const reviewResetBtn         = document.getElementById("reviewResetBtn");
+const reviewConfirmBtn       = document.getElementById("reviewConfirmBtn");
+const reviewStatus           = document.getElementById("reviewStatus");
 
 // "Reload Viewer" button — recovers from a hung/frozen Mol* instance
 // (typically a stuck WebGL context after heavy density streaming) without
@@ -1189,13 +1213,13 @@ function initMolstar() {
   return viewerInitPromise;
 }
 
-function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source) {
+function openViewer(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source, reviewData) {
   showTab("viewer");
   viewerPdbInput.value = pdbid.toUpperCase();
-  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null, densityAtoms || null, source || "PDB");
+  loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes || [], densityBoxes || null, densityAtoms || null, source || "PDB", reviewData || null);
 }
 
-async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source) {
+async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source, reviewData) {
   if (isLoadingStructure) {
     console.warn("loadMolstarStructure called while a load is already in progress — ignoring.");
     return;
@@ -1203,7 +1227,7 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
   isLoadingStructure = true;
   reloadViewerBtn.disabled = true;
   reloadViewerBtn.textContent = "Loading…";
-  viewerResiduePicker.classList.add("hidden");
+  showReviewPlaceholder();
   viewerDensityControls.classList.add("hidden");
 
   currentPdbId = pdbid;
@@ -1237,7 +1261,7 @@ async function loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxe
     await initMolstar();
     pinContainerSize();
     await applyMolstarScene({ focus: true, keepCamera: false });
-    populateResiduePicker(currentRteRes.length ? currentRteRes : ligandRes);
+    setupReviewContext(pdbid, reviewData);
     // Only show density controls when we actually have region boxes to
     // query (i.e. came from an analysis result, not a bare PDB ID load).
     if (currentDensityBoxes && hasAnyBox(currentDensityBoxes)) {
@@ -1297,6 +1321,10 @@ async function reloadViewer() {
   const densityBoxes  = currentDensityBoxes;
   const densityAtoms  = currentDensityAtoms;
   const source        = currentSource;
+  // Also snapshot any not-yet-confirmed review-panel edits — a reload is a
+  // recovery action for a stuck viewer, not a reason to throw away
+  // in-progress classification overrides the user hasn't confirmed yet.
+  const reviewSnapshot = reviewContext ? JSON.parse(JSON.stringify(reviewContext)) : null;
 
   reloadViewerBtn.disabled = true;
   reloadViewerBtn.textContent = "Reloading…";
@@ -1320,7 +1348,15 @@ async function reloadViewer() {
   }
 
   try {
-    await loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source);
+    await loadMolstarStructure(pdbid, ligandRes, bsRes, rteRes, densityBoxes, densityAtoms, source, null);
+    if (reviewSnapshot) {
+      reviewContext = reviewSnapshot;
+      reviewPanelPlaceholder.classList.add("hidden");
+      reviewComponentsSection.classList.remove("hidden");
+      reviewOverallSection.classList.remove("hidden");
+      reviewActions.classList.remove("hidden");
+      renderReviewPanel();
+    }
   } finally {
     reloadViewerBtn.disabled = false;
     reloadViewerBtn.textContent = "Reload Viewer";
@@ -1623,33 +1659,198 @@ function pdbRedoMapUrl(pdbid) {
   return `/api/edm/${pdbid.toLowerCase()}?source=pdb_redo`;
 }
 
-function populateResiduePicker(residues) {
-  if (!residues.length) {
-    viewerResiduePicker.classList.add("hidden");
+// ── Quality review panel (3D Viewer, right-hand column) ────
+// Lets the user override the computed Good/Dubious/Bad call for each
+// "component to examine" (residues_to_examine) and for the ligand/binding
+// site overall. Nothing here touches the underlying analysis — it's a
+// manual annotation layer that only reaches the Results tab when the user
+// clicks "Confirm changes" (see reviewConfirmBtn below).
+
+let reviewContext = null;
+// Shape while active:
+// {
+//   pdbid: lowercase pdbid,
+//   ligandIndex: index into results[i].ligands for this structure,
+//   original: { residueQualities: {resKey: "Good"|"Dubious"|"Bad"|null}, ligandQuality, bsQuality },
+//   working:  same shape — the in-progress edits, discarded by Reset, written back by Confirm
+// }
+
+function computeInitialReviewState(reviewData) {
+  const residueQualities = {};
+  currentRteRes.forEach(res => {
+    residueQualities[res] = (reviewData && reviewData.residueQualities && reviewData.residueQualities[res]) || null;
+  });
+  return {
+    residueQualities,
+    ligandQuality: (reviewData && reviewData.ligandQuality) || null,
+    bsQuality: (reviewData && reviewData.bsQuality) || null,
+  };
+}
+
+function showReviewPlaceholder() {
+  reviewContext = null;
+  reviewPanelPlaceholder.classList.remove("hidden");
+  reviewComponentsSection.classList.add("hidden");
+  reviewOverallSection.classList.add("hidden");
+  reviewActions.classList.add("hidden");
+  reviewStatus.textContent = "";
+}
+
+function setupReviewContext(pdbid, reviewData) {
+  if (!reviewData || Number.isNaN(reviewData.ligandIndex)) {
+    showReviewPlaceholder();
     return;
   }
-  viewerLigandList.innerHTML = "";
-  residues.forEach(res => {
-    const btn = document.createElement("button");
-    btn.className = "residue-btn";
-    btn.textContent = res;
-    btn.dataset.residue = res;
-    btn.addEventListener("click", () => {
-      if (!residueSelector(res) || !currentPdbId || isLoadingStructure || !viewerInstance) return;
-      currentFocusRes = res;
-      viewerLigandList.querySelectorAll(".residue-btn").forEach(b => {
-        const isActive = b.dataset.residue === res;
-        b.classList.toggle("active", isActive);
-        // Inline fallback in case style.css has no .residue-btn.active rule.
-        b.style.outline = isActive ? "2px solid #fff" : "";
-      });
-      applyMolstarScene({ focus: false, keepCamera: false })
-        .catch(err => console.error("[VHELIBS] Failed to focus residue:", err));
-    });
-    viewerLigandList.appendChild(btn);
-  });
-  viewerResiduePicker.classList.remove("hidden");
+  const state = computeInitialReviewState(reviewData);
+  reviewContext = {
+    pdbid: pdbid.toLowerCase(),
+    ligandIndex: reviewData.ligandIndex,
+    original: JSON.parse(JSON.stringify(state)),
+    working: JSON.parse(JSON.stringify(state)),
+  };
+  reviewPanelPlaceholder.classList.add("hidden");
+  reviewComponentsSection.classList.remove("hidden");
+  reviewOverallSection.classList.remove("hidden");
+  reviewActions.classList.remove("hidden");
+  reviewStatus.textContent = "";
+  renderReviewPanel();
 }
+
+// Builds a fresh Good/Dubious/Bad button group. `compact` uses single-letter
+// labels so rows stay one line wide in the narrow 260px review column.
+function buildQualityBtnGroup(currentValue, onSelect, compact) {
+  const group = document.createElement("div");
+  group.className = "quality-btn-group" + (compact ? " compact" : "");
+  ["Good", "Dubious", "Bad"].forEach(q => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `quality-btn quality-btn-${q.toLowerCase()}`;
+    btn.textContent = compact ? q[0] : q;
+    btn.title = q;
+    btn.classList.toggle("active", currentValue === q);
+    btn.addEventListener("click", () => onSelect(q));
+    group.appendChild(btn);
+  });
+  return group;
+}
+
+// Updates the active/inactive styling on a *static* (already-built)
+// quality-btn-group — used for the Ligand/Binding site overall selectors,
+// which live permanently in index.html rather than being rebuilt each render.
+function syncQualityBtnGroup(container, currentValue) {
+  container.querySelectorAll(".quality-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.quality === currentValue);
+  });
+}
+
+function renderReviewPanel() {
+  if (!reviewContext) return;
+  const { working } = reviewContext;
+
+  reviewComponentsList.innerHTML = "";
+  if (!currentRteRes.length) {
+    reviewComponentsEmpty.classList.remove("hidden");
+  } else {
+    reviewComponentsEmpty.classList.add("hidden");
+    currentRteRes.forEach(res => {
+      const row = document.createElement("div");
+      row.className = "review-component-row";
+
+      const label = document.createElement("button");
+      label.type = "button";
+      label.className = "review-component-label";
+      label.textContent = res;
+      label.title = "Click to focus this component in the 3D view";
+      label.classList.toggle("active", currentFocusRes === res);
+      label.addEventListener("click", () => {
+        if (!residueSelector(res) || !currentPdbId || isLoadingStructure || !viewerInstance) return;
+        currentFocusRes = res;
+        reviewComponentsList.querySelectorAll(".review-component-label").forEach(b => {
+          b.classList.toggle("active", b.textContent === res);
+        });
+        applyMolstarScene({ focus: false, keepCamera: false })
+          .catch(err => console.error("[VHELIBS] Failed to focus residue:", err));
+      });
+
+      // Clicking Good/Dubious/Bad only ever edits the in-progress `working`
+      // state — the component stays listed here regardless of which button
+      // is active, per spec ("if marked GOOD it should show as good, but
+      // without disappearing from the components to examine list").
+      const group = buildQualityBtnGroup(working.residueQualities[res], q => {
+        working.residueQualities[res] = q;
+        renderReviewPanel();
+      }, true);
+
+      row.appendChild(label);
+      row.appendChild(group);
+      reviewComponentsList.appendChild(row);
+    });
+  }
+
+  syncQualityBtnGroup(reviewLigandQualityBtns, working.ligandQuality);
+  syncQualityBtnGroup(reviewBsQualityBtns, working.bsQuality);
+}
+
+reviewLigandQualityBtns.querySelectorAll(".quality-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (!reviewContext) return;
+    reviewContext.working.ligandQuality = btn.dataset.quality;
+    renderReviewPanel();
+  });
+});
+reviewBsQualityBtns.querySelectorAll(".quality-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (!reviewContext) return;
+    reviewContext.working.bsQuality = btn.dataset.quality;
+    renderReviewPanel();
+  });
+});
+
+reviewResetBtn.addEventListener("click", () => {
+  if (!reviewContext) return;
+  reviewContext.working = JSON.parse(JSON.stringify(reviewContext.original));
+  renderReviewPanel();
+  reviewStatus.textContent = "Reverted to the last confirmed classification.";
+  setTimeout(() => { if (reviewStatus.textContent.startsWith("Reverted")) reviewStatus.textContent = ""; }, 3000);
+});
+
+// Re-renders the Results tab after a Confirm, without discarding whatever
+// quality filters the user had already toggled off — renderResults() on
+// its own resets every filter toggle back to active, which would be a
+// jarring side effect of simply reviewing one ligand.
+function refreshResultsAfterEdit(results) {
+  const inactiveToggles = Array.from(filterToggles).filter(btn => !toggleIsActive(btn));
+  renderResults(results);
+  inactiveToggles.forEach(btn => btn.classList.add("inactive"));
+  applyResultsFilter();
+}
+
+reviewConfirmBtn.addEventListener("click", () => {
+  if (!reviewContext) return;
+  if (!lastAnalysisResults) {
+    alert("There are no results loaded to update.");
+    return;
+  }
+  const r = lastAnalysisResults.find(res => !res.error && (res.pdbid || "").toLowerCase() === reviewContext.pdbid);
+  const l = r && r.ligands && r.ligands[reviewContext.ligandIndex];
+  if (!l) {
+    alert("Could not find this ligand entry in the current results — they may have been re-run since this view was opened.");
+    return;
+  }
+
+  l.ligand_quality = reviewContext.working.ligandQuality || l.ligand_quality;
+  l.binding_site_quality = reviewContext.working.bsQuality || l.binding_site_quality;
+  l.residue_qualities = Object.assign({}, l.residue_qualities, reviewContext.working.residueQualities);
+  l._manuallyEdited = true;
+
+  // The just-confirmed state becomes the new baseline: Reset from here on
+  // reverts to *this*, not to the original computed classification.
+  reviewContext.original = JSON.parse(JSON.stringify(reviewContext.working));
+
+  refreshResultsAfterEdit(lastAnalysisResults);
+  reviewStatus.textContent = "Changes applied to Results.";
+  setTimeout(() => { if (reviewStatus.textContent === "Changes applied to Results.") reviewStatus.textContent = ""; }, 3000);
+});
 
 // Wires a group of checkboxes to a state object + scene rebuild.
 // Because Mol* diffs the state tree, rebuilding the scene on every

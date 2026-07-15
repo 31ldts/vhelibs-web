@@ -1480,7 +1480,39 @@ def _compute_binding_sites(ligands, ligand_scores, good_rsr, bad_rsr, dubious_rs
     return ligand_bs_list
 
 
-def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source):
+def _residue_quality(residue, good_rsr, dubious_rsr, bad_rsr):
+    """Return the quality bucket a single residue key falls into.
+
+    Args:
+        residue (str): Residue key, as produced by
+            :func:`core.pdb_atom.format_reskey`.
+        good_rsr (set): Set of residue keys classified as "good".
+        dubious_rsr (set): Set of residue keys classified as "dubious".
+        bad_rsr (set): Set of residue keys classified as "bad".
+
+    Returns:
+        str or None: ``"Good"``, ``"Dubious"``, or ``"Bad"`` — checked in
+        that priority order in case a residue somehow ended up in more
+        than one set (shouldn't normally happen, but "Bad" wins ties
+        deliberately: silently hiding a bad residue behind an earlier
+        "good" verdict would be the wrong direction to err in). ``None``
+        if the residue isn't in any of the three sets (e.g. an occupancy
+        or missing-data rejection handled elsewhere).
+
+    Raises:
+        None
+    """
+    if residue in bad_rsr:
+        return "Bad"
+    if residue in dubious_rsr:
+        return "Dubious"
+    if residue in good_rsr:
+        return "Good"
+    return None
+
+
+def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source,
+                      good_rsr=None, dubious_rsr=None, bad_rsr=None):
     """Convert one :func:`get_binding_site` result tuple into a JSON-safe dict.
 
     Residues belonging to any *other* ligand present in the structure
@@ -1500,6 +1532,11 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
         ligand_res_atom_dict (dict): Mapping of residue key to ligand
             atoms, used for density boxes/atoms.
         source (str): ``"PDB"`` or ``"PDB_REDO"``, echoed into the result.
+        good_rsr (set, optional): Set of residue keys classified as
+            "good", used to fill ``"residue_qualities"`` below.
+        dubious_rsr (set, optional): Set of residue keys classified as
+            "dubious".
+        bad_rsr (set, optional): Set of residue keys classified as "bad".
 
     Returns:
         dict or None: The serialized ligand result, or ``None`` if
@@ -1517,10 +1554,23 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
     display_rte = [r for r in rte if r not in other_ligand_residues]
     display_bad_occupancy = [r for r in bad_occupancy if r not in other_ligand_residues]
 
+    good_rsr = good_rsr or set()
+    dubious_rsr = dubious_rsr or set()
+    bad_rsr = bad_rsr or set()
+
     return {
         "ligand_residues": sorted(ligandresidues),
         "binding_site_residues": sorted(display_binding_site),
         "residues_to_examine": sorted(display_rte),
+        # Per-residue quality for every entry in "residues_to_examine"
+        # above (rte, by construction, never contains a "Good" residue —
+        # see get_binding_site — so these are always "Dubious" or "Bad").
+        # Powers the per-component Good/Dubious/Bad override buttons in
+        # the 3D Viewer tab; purely informational, doesn't feed back into
+        # scoring.
+        "residue_qualities": {
+            r: _residue_quality(r, good_rsr, dubious_rsr, bad_rsr) for r in display_rte
+        },
         "ligand_quality": ligandgood,
         "binding_site_quality": bsgood,
         "source": source,
@@ -1553,7 +1603,8 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
 
 
 def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
-                  res_atom_dict, ligand_res_atom_dict, cfg):
+                  res_atom_dict, ligand_res_atom_dict, cfg,
+                  good_rsr=None, dubious_rsr=None, bad_rsr=None):
     """Assemble the final JSON-serializable result dict for a PDB entry.
 
     Args:
@@ -1570,6 +1621,10 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
             atoms.
         cfg (AnalysisConfig): Supplies ``pdb_redo`` for the ``"source"``
             field.
+        good_rsr (set, optional): Passed through to
+            :func:`_serialize_ligand` for the ``"residue_qualities"`` map.
+        dubious_rsr (set, optional): See above.
+        bad_rsr (set, optional): See above.
 
     Returns:
         dict: See :func:`parse_binding_site` for the shape of a success
@@ -1582,7 +1637,8 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
 
     result_ligands = []
     for data in ligand_bs_list:
-        serialized = _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source)
+        serialized = _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source,
+                                       good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr)
         if serialized:
             result_ligands.append(serialized)
 
@@ -1692,7 +1748,8 @@ def parse_binding_site(pdbid, cfg=None):
     # --- Serialise to JSON-safe structures ---
     return _build_result(
         pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
-        res_atom_dict, ligand_res_atom_dict, cfg)
+        res_atom_dict, ligand_res_atom_dict, cfg,
+        good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr)
 
 
 # Default cap on how many PDB entries are analysed concurrently. Each entry's

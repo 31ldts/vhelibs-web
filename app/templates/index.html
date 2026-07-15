@@ -277,10 +277,6 @@
               <input type="range" id="atomRadiusSlider" min="0.5" max="4.0" step="0.1" value="1.6" class="th-input" />
             </label>
           </div>
-          <div id="viewerResiduePicker" class="residue-picker hidden">
-            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Components to examine</h3>
-            <div id="viewerLigandList" class="residue-list"></div>
-          </div>
         </div>
         <!-- id/class names kept as "ngl*" for CSS compatibility (see style.css);
              this container is now mounted and driven by Mol* Viewer, not NGL. -->
@@ -288,6 +284,54 @@
           <div class="ngl-placeholder">
             <p>Click <strong>View 3D</strong> on a result in the Results tab to load a structure</p>
           </div>
+        </div>
+
+        <!-- ===== Quality review panel ===== -->
+        <!-- Same width as .viewer-controls (see .viewer-layout in style.css).
+             Populated by populateReviewPanel() (app.js) whenever a structure
+             is opened with analysis data (i.e. via "View 3D" from the
+             Results tab, not a bare PDB ID lookup). Lets the user override
+             the computed Good/Dubious/Bad call for each "component to
+             examine", and for the ligand/binding site overall, then either
+             discard those overrides (Reset) or write them back into the
+             Results tab (Confirm). -->
+        <div id="viewerReviewPanel" class="viewer-controls card">
+          <h2 class="card-title">Quality review</h2>
+          <p class="th-hint">Override the computed classification. Changes only apply to Results once confirmed.</p>
+
+          <p id="reviewPanelPlaceholder" class="th-hint mt-8">Load a structure via <strong>View 3D</strong> in the Results tab to review its classification.</p>
+
+          <div id="reviewComponentsSection" class="hidden">
+            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Components to examine</h3>
+            <div id="reviewComponentsList" class="review-components-list"></div>
+            <p id="reviewComponentsEmpty" class="th-hint hidden">No components flagged for examination.</p>
+          </div>
+
+          <div id="reviewOverallSection" class="review-overall-section hidden">
+            <h3 class="card-title" style="font-size:.9rem;margin-top:12px">Overall classification</h3>
+            <div class="review-overall-row">
+              <span class="review-overall-label">Ligand</span>
+              <div id="reviewLigandQualityBtns" class="quality-btn-group" data-target="ligand">
+                <button type="button" class="quality-btn quality-btn-good" data-quality="Good">Good</button>
+                <button type="button" class="quality-btn quality-btn-dubious" data-quality="Dubious">Dubious</button>
+                <button type="button" class="quality-btn quality-btn-bad" data-quality="Bad">Bad</button>
+              </div>
+            </div>
+            <div class="review-overall-row">
+              <span class="review-overall-label">Binding site</span>
+              <div id="reviewBsQualityBtns" class="quality-btn-group" data-target="bs">
+                <button type="button" class="quality-btn quality-btn-good" data-quality="Good">Good</button>
+                <button type="button" class="quality-btn quality-btn-dubious" data-quality="Dubious">Dubious</button>
+                <button type="button" class="quality-btn quality-btn-bad" data-quality="Bad">Bad</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="reviewActions" class="review-actions hidden">
+            <button id="reviewResetBtn" type="button" class="btn btn-secondary">Reset</button>
+            <button id="reviewConfirmBtn" type="button" class="btn btn-primary">Confirm changes</button>
+          </div>
+          <p id="reviewStatus" class="th-hint mt-8"></p>
         </div>
       </div>
     </section>
