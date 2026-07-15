@@ -157,6 +157,45 @@ def download_or_404(url, dest_path, timeout=60, stream=False, chunk_size=1 << 16
         return False
 
 
+def head_exists(url, timeout=15):
+    """Check whether ``url`` exists, without downloading its body.
+
+    Issues a single HTTP ``HEAD`` request. Some servers (e.g. simple
+    static file servers that don't implement ``HEAD`` correctly) reply
+    with ``405 Method Not Allowed`` regardless of whether the resource
+    exists; in that case this falls back to a streamed ``GET`` whose
+    connection is closed immediately after the status line/headers are
+    read, so the response body is never actually downloaded.
+
+    Args:
+        url (str): URL to check.
+        timeout (int or float, optional): Request timeout in seconds.
+            Defaults to ``15``.
+
+    Returns:
+        bool: ``True`` if the server reports the resource exists (any
+        ``2xx``/``3xx`` status), ``False`` on ``404`` or any other
+        client/server error, and ``False`` if the request itself fails
+        (network error, timeout, etc).
+
+    Raises:
+        None: All request errors are caught internally and logged; the
+            function returns ``False`` instead of propagating them.
+    """
+    try:
+        r = requests.head(url, timeout=timeout, verify=True, allow_redirects=True)
+        if r.status_code == 405:
+            # HEAD not supported by this server — fall back to a GET, but
+            # close the connection as soon as we have the status code so
+            # the body is never pulled over the wire.
+            with requests.get(url, timeout=timeout, verify=True, stream=True) as r2:
+                return r2.status_code < 400
+        return r.status_code < 400
+    except Exception as exc:
+        logger.warning("Existence check failed for %s: %s", url, exc)
+        return False
+
+
 def load_cached_json(cache_path):
     """Best-effort load of a JSON cache file.
 

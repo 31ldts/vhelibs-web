@@ -500,6 +500,12 @@ function startAnalysis() {
   const ids = cfg.pdbids.trim();
   if (!ids) { alert("Please enter at least one PDB ID."); return; }
 
+  // Kept so the Results-tab export (see "Results export" below) can
+  // report the exact parameters this run was submitted with, even though
+  // gatherConfig() itself isn't re-callable after the form may have
+  // changed by the time the user clicks "Export".
+  lastAnalysisConfig = cfg;
+
   stopPolling(); // cancel any poll loop still running for a previous job
 
   analyseBtn.disabled = true;
@@ -578,6 +584,7 @@ function pollJob(jobId, total) {
           progressLabel.textContent = "Analysis complete.";
           stopPolling();
           resetAnalyseBtn();
+          lastAnalysisResults = data.results;
           renderResults(data.results);
           showTab("results");
         } else {
@@ -884,6 +891,208 @@ function buildResultCard(r) {
 
   return card;
 }
+
+// ── Results export (.xlsx) ────────────────────────────────
+// Builds a two-sheet workbook from the most recently completed analysis:
+//   "Parameters" – the thresholds/options that run was submitted with.
+//   "Ligands"    – one row per ligand entry, plus one (mostly-blank) row
+//                  per structure that errored out / wasn't found.
+// Built entirely client-side with SheetJS (loaded from CDN in
+// index.html) — a real spreadsheet with two sheets, since plain .csv has
+// no concept of multiple sheets. The only network calls made here are the
+// lightweight electron-density-map existence checks below (never a full
+// map download).
+
+let lastAnalysisConfig  = null; // cfg object POSTed for the most recent /api/analyse call
+let lastAnalysisResults = null; // data.results from the most recently completed job
+
+const exportResultsBtn = document.getElementById("exportResultsBtn");
+const exportStatus     = document.getElementById("exportStatus");
+
+// [config key, English column label] — order here is the order rows
+// appear in the "Parameters" sheet.
+const PARAM_LABELS = [
+  ["pdbids",           "PDB IDs / UniProt accessions (as entered)"],
+  ["rsr_upper",        "RSR upper threshold (Bad above this)"],
+  ["rsr_lower",        "RSR lower threshold (Good below this)"],
+  ["rscc_min",         "RSCC minimum"],
+  ["rfree_max",        "R-free maximum"],
+  ["occupancy_min",    "Occupancy minimum"],
+  ["tolerance",        "Tolerance"],
+  ["distance",         "Binding site distance (Å)"],
+  ["use_pdb_redo",     "Use PDB-REDO structures"],
+  ["check_owab",       "Check OWAB"],
+  ["owab_max",         "OWAB maximum"],
+  ["check_resolution", "Check resolution"],
+  ["resolution_max",   "Resolution maximum (Å)"],
+  ["use_rdiff",        "Use R-diff filter"],
+  ["rdiff_max",        "R-diff maximum"],
+  ["use_dpi",          "Use DPI filter"],
+  ["dpi_max",          "DPI maximum"],
+  ["use_cache",        "Use cached downloads"],
+];
+
+function formatParamValue(v) {
+  if (v === true) return "Yes";
+  if (v === false) return "No";
+  if (v === null || v === undefined) return "";
+  return v;
+}
+
+function buildParametersSheetData(cfg) {
+  const rows = [["Parameter", "Value"]];
+  PARAM_LABELS.forEach(([key, label]) => rows.push([label, formatParamValue(cfg[key])]));
+
+  const bl = cfg.blacklist || {};
+  rows.push(["Blacklist: disabled default entries", (bl.disabled || []).join(", ")]);
+  rows.push(["Blacklist: custom entries added", (bl.custom || []).map(e => `${e.code} (${e.name})`).join(", ")]);
+  rows.push(["Blacklist: default list replaced by uploaded file", bl.replace ? "Yes" : "No"]);
+  rows.push(["Export date", new Date().toISOString()]);
+  return rows;
+}
+
+function fmtNum(v) {
+  return (v != null && !Number.isNaN(v)) ? v : "";
+}
+
+function rejectedResiduesText(rejected) {
+  const keys = Object.keys(rejected || {});
+  if (!keys.length) return "";
+  return keys.map(k => `${k}: ${rejected[k]}`).join("; ");
+}
+
+/**
+ * Resolve electron-density-map availability for every successfully
+ * analysed structure in `results`, WITHOUT downloading any map.
+ *
+ * - PDB-REDO analyses: no request needed at all. A structure that
+ *   analysed successfully already required fetching its PDB-REDO stats
+ *   (see rsr_core._fetch_structure_data), which only succeeds if
+ *   PDB-REDO has data for that entry — and therefore a map obtainable
+ *   from its map-maker service — so this is inferred as "available".
+ * - Standard PDB analyses: one lightweight HEAD-based existence check
+ *   per structure via /api/edm-exists/<pdbid> (see routes.py), a few
+ *   requests at a time.
+ *
+ * Returns a Map<lowercase pdbid, true|false|null>, null meaning
+ * "could not be determined".
+ */
+async function fetchDensityMapAvailability(results) {
+  const availability = new Map();
+  const ok = results.filter(r => !r.error);
+  if (!ok.length) return availability;
+
+  const firstSource = (ok.find(r => r.ligands && r.ligands.length) || {}).ligands?.[0]?.source;
+  const isPdbRedo = firstSource === "PDB_REDO";
+
+  if (isPdbRedo) {
+    ok.forEach(r => availability.set(r.pdbid.toLowerCase(), true));
+    return availability;
+  }
+
+  const pdbids = ok.map(r => r.pdbid.toLowerCase());
+  const CONCURRENCY = 6;
+  let i = 0;
+  async function worker() {
+    while (i < pdbids.length) {
+      const pdbid = pdbids[i++];
+      try {
+        const resp = await fetch(`/api/edm-exists/${pdbid}`);
+        const data = await resp.json();
+        availability.set(pdbid, !!data.exists);
+      } catch (e) {
+        availability.set(pdbid, null); // couldn't determine — left blank in the sheet
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pdbids.length) }, worker));
+  return availability;
+}
+
+function buildLigandsSheetData(results, densityAvailability) {
+  const rows = [[
+    "UniProt accession", "Complex", "Ligand",
+    "Ligand classification", "Binding site classification",
+    "R-free", "R-work", "Rejected residues",
+    "Electron density map available",
+  ]];
+
+  results.forEach(r => {
+    const complex = (r.pdbid || "").toUpperCase();
+
+    if (r.error) {
+      // Not-found / failed structure: still listed, everything except
+      // the complex ID left blank.
+      rows.push(["", complex, "", "", "", "", "", "", ""]);
+      return;
+    }
+
+    const avail = densityAvailability.get(r.pdbid.toLowerCase());
+    const mapAvail = avail === true ? "Yes" : avail === false ? "No" : "";
+    const sd = r.struc_dict || {};
+    const rejectedText = rejectedResiduesText(r.rejected);
+    const ligands = r.ligands || [];
+
+    if (!ligands.length) {
+      rows.push([r.uniprot || "", complex, "", "", "", fmtNum(sd.rFree), fmtNum(sd.rWork), rejectedText, mapAvail]);
+      return;
+    }
+
+    ligands.forEach(l => {
+      rows.push([
+        r.uniprot || "",
+        complex,
+        (l.ligand_residues || []).join("; "),
+        l.ligand_quality || "",
+        l.binding_site_quality || "",
+        fmtNum(sd.rFree),
+        fmtNum(sd.rWork),
+        rejectedText,
+        mapAvail,
+      ]);
+    });
+  });
+
+  return rows;
+}
+
+async function exportResults() {
+  if (!lastAnalysisResults || !lastAnalysisResults.length) {
+    alert("There are no results to export yet. Run an analysis first.");
+    return;
+  }
+  if (typeof XLSX === "undefined") {
+    alert("The export library failed to load. Check your internet connection and try again.");
+    return;
+  }
+
+  exportResultsBtn.disabled = true;
+  exportStatus.classList.remove("hidden");
+  exportStatus.textContent = "Checking electron density map availability…";
+
+  try {
+    const densityAvailability = await fetchDensityMapAvailability(lastAnalysisResults);
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb, XLSX.utils.aoa_to_sheet(buildParametersSheetData(lastAnalysisConfig || {})), "Parameters"
+    );
+    XLSX.utils.book_append_sheet(
+      wb, XLSX.utils.aoa_to_sheet(buildLigandsSheetData(lastAnalysisResults, densityAvailability)), "Ligands"
+    );
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    XLSX.writeFile(wb, `vhelibs_results_${stamp}.xlsx`);
+  } catch (err) {
+    console.error("[VHELIBS] Export failed:", err);
+    alert("Could not export the results: " + err.message);
+  } finally {
+    exportResultsBtn.disabled = false;
+    exportStatus.classList.add("hidden");
+  }
+}
+
+exportResultsBtn.addEventListener("click", exportResults);
 
 // ── 3D Viewer (Mol*) ──────────────────────────────────────
 

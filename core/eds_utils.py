@@ -133,6 +133,60 @@ def get_edm(pdbid, use_cache=True):
     return mapfile, 1.0
 
 
+def edm_exists(pdbid, use_cache=True):
+    """Check whether a full 2Fo-Fc electron density map is available for pdbid.
+
+    This is a lightweight existence check for the same resource fetched by
+    :func:`get_edm` — it never downloads the map itself. Three ways this
+    can be answered, cheapest first:
+
+      1. The map is already cached on disk (a previous :func:`get_edm`
+         call succeeded) → ``True``, no network request.
+      2. A previous call to this function cached a ``True``/``False``
+         answer on disk → that cached answer is reused.
+      3. Otherwise, a single HTTP ``HEAD`` request is made against the
+         same URL :func:`get_edm` would download from, and the answer is
+         cached to disk for next time.
+
+    Args:
+        pdbid (str): PDB identifier of the structure to check. It is
+            lower-cased before use.
+        use_cache (bool, optional): Whether a previously cached answer (or
+            an already-downloaded map file) may be reused instead of
+            re-checking. Defaults to ``True``.
+
+    Returns:
+        bool: ``True`` if a 2Fo-Fc map is available for this entry,
+        ``False`` otherwise (including on network/request failure — an
+        inability to confirm existence is treated as "not available").
+
+    Raises:
+        None: All request errors are caught internally (via
+            :func:`core.http_cache.head_exists`) and reported via the
+            module logger; the function returns ``False`` instead of
+            propagating exceptions.
+    """
+    pdbid = pdbid.lower()
+    downloaddir = http_cache.entry_cache_dir(pdb_utils.CACHEDIR, pdbid)
+
+    # 1. Already have the full map on disk (from a prior get_edm() call).
+    mapfile = os.path.join(downloaddir, f"{pdbid}.ccp4")
+    if os.path.isfile(mapfile) and os.path.getsize(mapfile) > 0:
+        return True
+
+    # 2. A previous existence-only check already answered this.
+    exists_cache_path = os.path.join(downloaddir, "edm_exists.json")
+    if use_cache:
+        cached = http_cache.load_cached_json(exists_cache_path)
+        if cached is not None and "exists" in cached:
+            return bool(cached["exists"])
+
+    # 3. Ask the server, without downloading the body.
+    exists = http_cache.head_exists(EDM_URL.format(pdbid), timeout=15)
+    http_cache.save_json(exists_cache_path, {"exists": exists})
+    return exists
+
+
 def _parse_validation_xml(xml_path):
     """Parse a PDBe validation XML file into a per-residue statistics dict.
 

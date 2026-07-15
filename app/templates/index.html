@@ -12,6 +12,8 @@
        exist in the 4.x MolViewSpec grammar. -->
   <script src="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.js"></script>
   <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.css" />
+  <!-- SheetJS: used only to build the two-sheet .xlsx export on the Results tab (see exportResults() in app.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -208,9 +210,11 @@
           <div class="filter-side-buttons">
             <button type="button" class="filter-toggle badge badge-error" data-axis="errors" data-value="errors">⚠ Not found <span class="filter-count">0</span></button>
             <button id="filterResetBtn" type="button" class="btn btn-secondary">Show all</button>
+            <button id="exportResultsBtn" type="button" class="btn btn-secondary">⬇ Export (.xlsx)</button>
           </div>
         </div>
         <p id="resultsFilterCount" class="th-hint mt-8"></p>
+        <p id="exportStatus" class="th-hint mt-8 hidden"></p>
       </div>
       <div id="resultsContainer" class="results-container hidden"></div>
     </section>

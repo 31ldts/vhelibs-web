@@ -326,6 +326,26 @@ def edm(pdbid):
     )
 
 
+@bp.route("/api/edm-exists/<pdbid>")
+@_with_cache_dir
+def edm_exists(pdbid):
+    """
+    Lightweight existence check for the full 2Fo-Fc map served by /api/edm
+    (default RCSB/EBI source only — see eds_utils.edm_exists). Used by the
+    Results-export feature to report whether a density map is available
+    for a structure without actually downloading it.
+
+    Note: this does NOT cover PDB-REDO (?source=pdb_redo) maps — those are
+    generated on demand by PDB-REDO's map-maker service, and a successful
+    PDB-REDO analysis already implies its map is obtainable, so the
+    frontend infers that case itself instead of calling this endpoint.
+    """
+    pdbid = pdbid.lower()
+    use_cache = request.args.get("use_cache", "1") != "0"
+    exists = eds_utils.edm_exists(pdbid, use_cache=use_cache)
+    return jsonify({"pdbid": pdbid, "exists": bool(exists)})
+
+
 def _parse_xyz(raw, name):
     try:
         parts = [float(v) for v in raw.split(",")]
