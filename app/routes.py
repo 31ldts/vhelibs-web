@@ -24,6 +24,7 @@ import threading
 import uuid
 import logging
 from functools import wraps
+from urllib.parse import urlencode
 
 import requests
 from flask import (
@@ -35,6 +36,7 @@ import core.pdb_utils as pdb_utils
 import core.eds_utils as eds_utils
 import core.pdb_redo_utils as pdb_redo_utils
 import core.cofactors as cofactors
+import core.http_cache as http_cache
 from core.rsr_core import AnalysisConfig, analyse_pdbids
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,44 @@ UNIPROT_RE = re.compile(
     r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$",
     re.IGNORECASE,
 )
+
+# UniProt "entry name" / mnemonic, e.g. "PPARG_HUMAN", "1433B_HUMAN": a
+# 1-5 character protein/gene code, an underscore, then a 1-5 character
+# organism mnemonic (https://www.uniprot.org/help/entry_name). These are
+# not stable identifiers the way accessions are (they can be reassigned if
+# a gene/organism is reclassified), so tokens matching this are resolved
+# down to their current primary accession in _resolve_uniprot_entry_name
+# before anything else touches them — accession is what actually gets
+# cached/used by core.pdb_utils.get_pdbids_for_uniprot.
+UNIPROT_ENTRY_NAME_RE = re.compile(r"^[A-Z0-9]{1,5}_[A-Z0-9]{1,5}$", re.IGNORECASE)
+
+UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
+
+
+def _resolve_uniprot_entry_name(entry_name):
+    """
+    Resolve a UniProt entry name / mnemonic (e.g. "PPARG_HUMAN") to its
+    current primary accession (e.g. "P37231") via the UniProt REST search
+    API, caching the (small) JSON response to disk the same way the other
+    core.*_utils modules do via core.http_cache.
+
+    Returns the primary accession as a string, or None if no UniProt entry
+    matches ``entry_name``.
+    """
+    entry_name = entry_name.upper()
+    cache_dir = http_cache.entry_cache_dir(pdb_utils.CACHEDIR, "_uniprot_names")
+    cache_path = os.path.join(cache_dir, entry_name + ".json")
+
+    qs = urlencode({"query": f"id:{entry_name}", "fields": "accession", "format": "json"})
+    url = f"{UNIPROT_SEARCH_URL}?{qs}"
+
+    data = http_cache.fetch_json(url, cache_path)
+    if not data:
+        return None
+    results = data.get("results") or []
+    if not results:
+        return None
+    return results[0].get("primaryAccession")
 
 
 def _with_cache_dir(view):
@@ -70,8 +110,11 @@ def _with_cache_dir(view):
 
 def _expand_ids(tokens):
     """
-    Expand any UniProt accessions found in *tokens* into the PDB IDs of the
-    structures that reference them (core.pdb_utils.get_pdbids_for_uniprot).
+    Expand any UniProt accessions or entry names/mnemonics found in
+    *tokens* into the PDB IDs of the structures that reference them
+    (core.pdb_utils.get_pdbids_for_uniprot). Entry names (e.g.
+    "PPARG_HUMAN") are first resolved to their primary accession via
+    _resolve_uniprot_entry_name; accessions (e.g. "P37231") are used as-is.
     Plain PDB IDs pass through unchanged. De-duplicates while preserving
     order of first appearance.
 
@@ -80,6 +123,7 @@ def _expand_ids(tokens):
       origin_map  – {pdbid.lower(): uniprot_accession_or_None}, so results
                     can be tagged with the UniProt code they came from
       unresolved  – UniProt-looking tokens that returned no PDB entries
+                    (or, for entry names, no matching UniProt accession)
     """
     pdbids = []
     origin_map = {}
@@ -87,8 +131,16 @@ def _expand_ids(tokens):
     seen = set()
 
     for token in tokens:
+        uniprot_id = None
         if UNIPROT_RE.match(token):
             uniprot_id = token.upper()
+        elif UNIPROT_ENTRY_NAME_RE.match(token):
+            uniprot_id = _resolve_uniprot_entry_name(token)
+            if not uniprot_id:
+                unresolved.append(token.upper())
+                continue
+
+        if uniprot_id:
             related = pdb_utils.get_pdbids_for_uniprot(uniprot_id)
             if not related:
                 unresolved.append(uniprot_id)
