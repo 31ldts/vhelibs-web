@@ -183,7 +183,7 @@ two-sheet Excel workbook:
   occupancy, tolerance, distance, PDB-REDO, advanced checks, blacklist customization, export
   timestamp).
 - **Ligands** — one row per ligand: UniProt accession, complex (PDB ID), ligand, ligand
-  classification, binding-site classification, R-free, R-work, rejected residues, and whether an
+  classification, binding-site classification, R-free, R-work, rejected molecules, and whether an
   electron-density map is available for that structure. Structures that couldn't be analysed are
   still listed, with the fields that have no data left blank.
 

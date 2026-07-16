@@ -851,13 +851,13 @@ function buildResultCard(r) {
     ligDiv.appendChild(entry);
   });
 
-  // Rejected residues
+  // Rejected molecules
   const rejected = r.rejected || {};
   const rejKeys = Object.keys(rejected);
   if (rejKeys.length) {
     const rejDiv = document.createElement("details");
     rejDiv.style.marginTop = "12px";
-    rejDiv.innerHTML = `<summary style="cursor:pointer;font-size:.8125rem;color:var(--clr-muted)">${rejKeys.length} rejected residue(s)</summary>
+    rejDiv.innerHTML = `<summary style="cursor:pointer;font-size:.8125rem;color:var(--clr-muted)">${rejKeys.length} rejected molecule(s)</summary>
       <div style="margin-top:6px;font-size:.8rem;font-family:monospace;color:var(--clr-muted)">
         ${rejKeys.map(k => `<div><span class="residue-tag">${esc(k)}</span> ${esc(rejected[k])}</div>`).join("")}
       </div>`;
@@ -1025,7 +1025,7 @@ function buildLigandsSheetData(results, densityAvailability) {
   const rows = [[
     "UniProt accession", "Complex", "Ligand",
     "Ligand classification", "Binding site classification",
-    "R-free", "R-work", "Rejected residues",
+    "R-free", "R-work", "Rejected molecules",
     "Electron density map available",
   ]];
 
