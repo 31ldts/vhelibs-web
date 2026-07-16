@@ -370,6 +370,21 @@
           within the binding-site distance cutoff is collected as that ligand's binding site.
         </p>
 
+        <h3>Editing the ligand blacklist</h3>
+        <p>
+          The <strong>Ligand Blacklist</strong> card on the Analysis tab lists every built-in
+          entry — non-ligand blacklist (solvents, buffers, crystallisation additives, …) and
+          metals/ions — as searchable, toggleable checkboxes. Uncheck an entry to have it scored
+          as a normal ligand instead of excluded, use <em>Select all</em> / <em>Select none</em> to
+          bulk-toggle everything currently visible, or <em>Restore defaults</em> to undo your
+          changes. You can also add custom entries by code/description/category, or replace the
+          whole list from an uploaded file (one code per line, optionally
+          <code>CODE,Description</code>, or a file previously exported with
+          <code>[Blacklist]</code>/<code>[Non-propagating]</code> section headers) — a preview is
+          shown before it's applied. None of this touches VHELIBS' shared built-in tables, it's
+          scoped to your browser session and only sent along with the next analysis.
+        </p>
+
         <h3>Classification criteria</h3>
         <p>Each residue accumulates one "fail point" per criterion it does not meet:</p>
         <table class="info-table">
@@ -406,6 +421,17 @@
           </tbody>
         </table>
 
+        <h3>Exporting results</h3>
+        <p>
+          The Results tab's <strong>Export (.xlsx)</strong> button downloads the current results
+          as a two-sheet Excel workbook, built entirely in your browser. The <em>Parameters</em>
+          sheet records every threshold/option the analysis was submitted with; the
+          <em>Ligands</em> sheet lists one row per ligand — UniProt accession, complex, ligand,
+          ligand/binding-site classification, R-free, R-work, rejected residues, and whether an
+          electron-density map is available for that structure. Structures that couldn't be analysed are still listed, with blank fields
+          where there's no data.
+        </p>
+
         <h3>3D Viewer</h3>
         <p>
           The Viewer tab renders the model with <a href="https://molstar.org" target="_blank">Mol*</a>,
@@ -419,6 +445,21 @@
           If a structure contains more than one ligand, opening the 3D view for one of them shows
           only that ligand and its own binding site — any other ligand present in the structure is
           left out of the scene entirely.
+        </p>
+
+        <h3>Manual quality review</h3>
+        <p>
+          Opening a structure via <strong>View 3D</strong> also populates a
+          <strong>Quality review</strong> panel. Every <em>component to examine</em> gets its own row with
+          <span class="badge badge-good">Good</span>, <span class="badge badge-dubious">Dubious</span>,
+          and <span class="badge badge-bad">Bad</span> buttons — whichever matches its computed
+          classification starts active, and clicking a different one reclassifies that component.
+          <strong>Reset</strong>
+          discards changes you haven't confirmed yet; <strong>Confirm changes</strong> writes them
+          back into the Results tab — updating its badges immediately and flagging the entry as
+          edited. These overrides live only
+          in the current browser session. They aren't sent back to the server or saved to disk, so
+          reloading the page or re-running the analysis discards them.
         </p>
 
         <h3>Data sources</h3>

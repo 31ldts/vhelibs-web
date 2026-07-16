@@ -21,8 +21,11 @@ dependencies. `pip install`, run, and it opens in your browser.
 - [Quick start](#quick-start)
 - [Using the app](#using-the-app)
   - [Analysis tab](#analysis-tab)
+    - [Editing the ligand blacklist](#editing-the-ligand-blacklist)
   - [Results tab](#results-tab)
+    - [Exporting results](#exporting-results)
   - [3D Viewer tab](#3d-viewer-tab)
+    - [Manual quality review](#manual-quality-review)
 - [How an analysis works](#how-an-analysis-works)
 - [Classification criteria](#classification-criteria)
 - [Project structure](#project-structure)
@@ -54,14 +57,22 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
   (|R-free − R-work|), and DPI (diffraction-component precision index).
 - **PDB-REDO integration** — analyse the re-refined structure and statistics instead of the
   original RCSB/PDBe deposition.
+- **Editable ligand blacklist** — browse and search the built-in non-ligand/metal tables, uncheck
+  entries you don't want treated as blacklisted, add custom codes, or replace the whole list from
+  an uploaded file, all without touching the shared defaults.
 - **Interactive results view**: every ligand and binding site is scored independently, and the
   Results tab lets you toggle Good/Dubious/Bad on each axis (plus a separate toggle for structures
   that couldn't be analysed) to filter down to exactly the combination you care about — e.g. every
   *Bad* ligand sitting in a *Dubious* binding site.
+- **Export results to Excel (.xlsx)** — a two-sheet workbook with the parameters a run was
+  submitted with and a per-ligand results table.
 - **Integrated Mol\* 3D viewer** with independently toggleable protein/ligand/binding-site
   layers, per-region 2Fo-Fc electron density overlay (streamed on demand and clipped to a sphere
   around each atom rather than the whole structure), and live-adjustable contour level (isovalue)
   and atom-mask radius.
+- **Manual quality review** — override the computed Good/Dubious/Bad call for any ligand, binding
+  site, or individual "component to examine" directly from the 3D Viewer, and write the
+  correction back into the Results tab.
 - **Disk caching** of every downloaded structure/statistics file, so re-running an analysis (or
   re-opening the 3D viewer) doesn't re-hit external APIs.
 
@@ -123,8 +134,28 @@ The app is a single-page interface with four tabs: **Analysis**, **Results**, **
 3. Adjust the **quality thresholds** (RSR, RSCC, R-free, occupancy, tolerance, binding-site
    distance) if the defaults don't suit your use case, and optionally expand **Advanced options**
    to enable OWAB / resolution / R-diff / DPI checks.
-4. Click **Analyse**. A progress bar tracks the job as each structure is downloaded and scored;
+4. Optionally customize the **Ligand Blacklist** — see below.
+5. Click **Analyse**. A progress bar tracks the job as each structure is downloaded and scored;
    when it finishes you're taken straight to the Results tab.
+
+#### Editing the ligand blacklist
+
+The **Ligand Blacklist** card lists every built-in entry across two columns — non-ligand
+blacklist (solvents, buffers, crystallisation additives, …) and metals/ions — that VHELIBS
+normally excludes from scoring rather than treating as ligands. You can:
+
+- **Search/filter** the list by code or name, and **uncheck** any entry you don't want excluded
+  for this analysis (it will then be scored as a normal ligand instead).
+- Use **Select all** / **Select none** to bulk-toggle every visible entry, or **Restore defaults**
+  to undo all changes.
+- **Add a custom entry** (code, optional description, and category) under *Add a custom entry*.
+- **Replace the whole list from a file** — accepts a plain list (one code per line, optionally
+  `CODE,Description`) or a file previously exported with `[Blacklist]`/`[Non-propagating]` section
+  headers. The app shows a preview of how many entries it parsed before you commit; applying it
+  **replaces** the built-in defaults entirely rather than adding to them.
+
+None of this modifies VHELIBS' shared built-in tables — it's scoped to the browser session and
+sent along with the next **Analyse** request only.
 
 ### Results tab
 
@@ -143,6 +174,19 @@ couldn't be analysed. **Show all** resets every toggle back on.
 Each ligand entry has a **View 3D** button that jumps straight to the 3D Viewer tab, loaded with
 that ligand, its binding site, and (if available) its electron density.
 
+#### Exporting results
+
+The **Export (.xlsx)** button downloads the current results as a
+two-sheet Excel workbook:
+
+- **Parameters** — every threshold/option the analysis was submitted with (RSR, RSCC, R-free,
+  occupancy, tolerance, distance, PDB-REDO, advanced checks, blacklist customization, export
+  timestamp).
+- **Ligands** — one row per ligand: UniProt accession, complex (PDB ID), ligand, ligand
+  classification, binding-site classification, R-free, R-work, rejected residues, and whether an
+  electron-density map is available for that structure. Structures that couldn't be analysed are
+  still listed, with the fields that have no data left blank.
+
 ### 3D Viewer tab
 
 Renders the model with [Mol\*](https://molstar.org). You can:
@@ -158,15 +202,34 @@ Renders the model with [Mol\*](https://molstar.org). You can:
 - Click through a ligand's **components to examine** in the sidebar list to focus the camera on each
   one in turn.
 
+#### Manual quality review
+
+Opening a structure via **View 3D** also populates a **Quality review** panel to the right of the
+viewer:
+
+- **Components to examine** — every flagged component gets its own row with Good / Dubious / Bad
+  buttons; whichever matches its computed classification starts active. Clicking a different one
+  reclassifies that component.
+- **Overall classification** — separate Good / Dubious / Bad selectors for the ligand and for the
+  binding site as a whole, working the same way.
+- **Reset** discards any changes you haven't confirmed yet, reverting to the last confirmed
+  classification (or the original computed one, if you haven't confirmed anything for this ligand
+  yet).
+- **Confirm changes** writes your edits back into the Results tab — the ligand/binding-site
+  badges update immediately, and the entry is flagged **✎ edited**.
+
+These overrides live only in the current browser session. They are not sent to the server or
+saved to disk, so reloading the page or re-running the analysis discards them.
+
 ## How an analysis works
 
 For each PDB ID, VHELIBS downloads the mmCIF model (from RCSB, or from PDB-REDO if that option is
 checked) together with per-residue real-space validation statistics (from PDBe's EDS validation
 report, or from PDB-REDO's own re-refinement data). Ligands that are known solvents, buffers,
 ions, or crystallisation additives — or that are covalently bound to the protein chain — are
-filtered out using built-in metal/blacklist tables rather than being scored as ligands. Remaining
-ligands are grouped into complexes (covalently linked HETATM groups count as one ligand), and
-every residue within the binding-site distance cutoff is collected as that ligand's binding site.
+filtered out using built-in metal/blacklist tables rather than being scored
+as ligands. Remaining ligands are grouped into complexes, and every residue within the binding-site distance cutoff is collected as that
+ligand's binding site.
 
 ## Classification criteria
 
@@ -259,7 +322,12 @@ A few notes on the core modules:
   "use_rdiff": false,
   "rdiff_max": 0.05,
   "use_dpi": false,
-  "dpi_max": 0.42
+  "dpi_max": 0.42,
+  "blacklist": {
+    "disabled": ["HOH"],
+    "custom": [{ "code": "XYZ", "name": "Custom additive", "category": "blacklist" }],
+    "replace": null
+  }
 }
 ```
 
@@ -267,6 +335,13 @@ A few notes on the core modules:
 or newlines. Each UniProt accession is resolved via the RCSB Search API to every PDB entry whose
 polymer entities reference it; unresolvable accessions are omitted and reported in an optional
 `warnings` array in the response.
+
+`blacklist` is optional and built by the Analysis tab's *Ligand Blacklist* card: `disabled` lists built-in codes to
+stop treating as blacklisted for this run, `custom` adds extra `{code, name, category}` entries,
+and `replace` — when non-null — substitutes the built-in metal/blacklist tables entirely with the
+`{"metals": {...}, "ligand_blacklist": {...}}` shape returned by
+[`POST /api/blacklist/parse`](#post-apiblacklistparse). This customization is per-request only —
+it never modifies VHELIBS' shared defaults.
 
 **Response:**
 
@@ -276,6 +351,35 @@ polymer entities reference it; unresolvable accessions are omitted and reported 
 
 `total` reflects the number of PDB entries actually queued for analysis, i.e. after expanding any
 UniProt accessions in the request.
+
+### `GET /api/blacklist`
+
+Returns the built-in non-ligand-blacklist and metal/ion entries, so the Analysis tab can render
+them as toggleable checkboxes rather than leaving them hardcoded/invisible.
+
+```json
+{ "entries": [ { "code": "HOH", "name": "Water", "category": "blacklist" }, "..." ] }
+```
+
+### `POST /api/blacklist/parse`
+
+Parses an uploaded blacklist file (sent as raw text) into structured entries, so the Analysis tab
+can preview it ("this file defines N blacklist + M metal entries") before committing to replacing
+the current list with it.
+
+**Request:** `{ "text": "<file contents>" }`
+
+**Response:**
+
+```json
+{
+  "entries": [ { "code": "XYZ", "name": "...", "category": "blacklist" }, "..." ],
+  "metals": { "ZN": "Zinc" },
+  "ligand_blacklist": { "HOH": "Water" }
+}
+```
+
+Returns `400` with `{"error": "..."}` if the text is empty or no valid entries could be parsed.
 
 ### `GET /api/status/<job_id>`
 
@@ -301,6 +405,7 @@ UniProt accessions in the request.
           "ligand_residues": ["REA A  200"],
           "binding_site_residues": ["TYR A   60", "..."],
           "residues_to_examine": ["..."],
+          "residue_qualities": { "TYR A   60": "Dubious" },
           "ligand_quality": "Good",
           "binding_site_quality": "Good",
           "source": "PDB",
@@ -337,6 +442,25 @@ directly as a PDB ID. `other_ligands` lists residues belonging to any *other* li
 the same structure (still counted towards this ligand's own scoring, but excluded from
 `binding_site_residues`/`residues_to_examine`/`density_boxes`/`density_atoms` so the 3D viewer
 never leaks another ligand into the current scene).
+
+`residue_qualities` maps every entry in `residues_to_examine` to the classification it was
+computed with (`"Dubious"` or `"Bad"` — by construction, a component never ends up in
+`residues_to_examine` if it's `"Good"`). This is what pre-selects the right button for each
+component in the 3D Viewer's [manual quality review](#manual-quality-review) panel. Overrides made
+there are a browser-only annotation layer. They update the in-memory results the Results tab
+renders from, but are never sent back to this API or persisted to disk — re-running the analysis
+or reloading the page discards them.
+
+### `GET /api/edm-exists/<pdbid>`
+
+Lightweight existence check for the full 2Fo-Fc electron density map (standard RCSB/EBI source
+only), used by the Results tab's [export](#exporting-results) to report map availability without
+downloading it. Issues a single `HEAD` request (falling back to a closed-early `GET` if the server
+doesn't support `HEAD`); the answer is cached on disk.
+
+```json
+{ "pdbid": "1cbs", "exists": true }
+```
 
 ## Data sources
 
