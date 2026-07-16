@@ -207,10 +207,12 @@
               <button type="button" class="filter-toggle badge badge-bad"     data-axis="bs" data-value="Bad">Bad <span class="filter-count">0</span></button>
             </div>
           </div>
+          <button type="button" class="filter-toggle badge badge-error" data-axis="errors" data-value="errors">⚠ Not found <span class="filter-count">0</span></button>
           <div class="filter-side-buttons">
-            <button type="button" class="filter-toggle badge badge-error" data-axis="errors" data-value="errors">⚠ Not found <span class="filter-count">0</span></button>
-            <button id="filterResetBtn" type="button" class="btn btn-secondary">Show all</button>
-            <button id="exportResultsBtn" type="button" class="btn btn-secondary">⬇ Export (.xlsx)</button>
+            <div class="filter-side-buttons-row">
+              <button id="filterResetBtn" type="button" class="btn btn-secondary">Show All</button>
+              <button id="exportResultsBtn" type="button" class="btn btn-secondary">Export (.xlsx)</button>
+            </div>
           </div>
         </div>
         <p id="resultsFilterCount" class="th-hint mt-8"></p>

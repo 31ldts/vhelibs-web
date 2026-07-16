@@ -13,6 +13,7 @@
   --clr-accent-h:  #7b96ff;
   --clr-text:      #e2e6f0;
   --clr-muted:     #7c86a2;
+  --clr-mid:       #555c74;
   --clr-good:      #22c55e;
   --clr-dubious:   #f59e0b;
   --clr-bad:       #ef4444;
@@ -137,7 +138,7 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 .th-check-combo .checkbox-label {
   font-size: inherit; color: inherit; gap: 6px;
 }
-.th-hint { font-size: .7rem; color: var(--clr-border); }
+.th-hint { font-size: .7rem; color: var(--clr-mid); }
 .th-input {
   background: var(--clr-surface2); border: 1px solid var(--clr-border);
   border-radius: 5px; color: var(--clr-text); font-size: .875rem;
@@ -229,6 +230,10 @@ a:hover { color: var(--clr-accent-h); text-decoration: underline; }
 .filter-side-buttons {
   display: flex; flex-direction: column; gap: 10px;
 }
+.filter-side-buttons-row {
+  display: flex; flex-direction: row; gap: 10px;
+}
+.filter-side-buttons-row .btn { flex: 1; }
 .filter-side-buttons .filter-toggle,
 .filter-side-buttons .btn {
   flex: 1;
