@@ -837,7 +837,12 @@ function buildResultCard(r) {
       <div class="ligand-residues" style="margin-top:6px">
         <strong>Binding site:</strong>
         ${l.binding_site_residues.slice(0, 8).map(s => `<span class="residue-tag">${esc(s)}</span>`).join("")}
-        ${l.binding_site_residues.length > 8 ? `<span class="residue-tag">+${l.binding_site_residues.length-8} more</span>` : ""}
+        ${l.binding_site_residues.length > 8 ? `
+        <span class="residue-extra-tags hidden">
+          ${l.binding_site_residues.slice(8).map(s => `<span class="residue-tag">${esc(s)}</span>`).join("")}
+        </span>
+        <span class="residue-tag residue-toggle" role="button" tabindex="0"
+          style="cursor:pointer" data-more-count="${l.binding_site_residues.length - 8}">+${l.binding_site_residues.length-8} more</span>` : ""}
       </div>` : ""}
       ${l.low_occupancy && l.low_occupancy.length ? `
       <div class="ligand-residues" style="margin-top:6px;color:var(--clr-dubious)">
@@ -898,6 +903,27 @@ function buildResultCard(r) {
         residueQualities,
       };
       openViewer(pdbid, ligands, bs, rte, boxes, atoms, source, reviewData);
+    });
+  });
+
+  // Wire binding-site "+N more" tags: clicking (or Enter/Space, since
+  // these are <span role="button"> rather than real buttons) reveals the
+  // rest of the binding-site residues and turns the tag into a "Show
+  // less" toggle to collapse them again.
+  card.querySelectorAll(".residue-toggle").forEach(toggle => {
+    const expandToggle = e => {
+      e.stopPropagation();
+      const extra = toggle.previousElementSibling;
+      if (!extra || !extra.classList.contains("residue-extra-tags")) return;
+      const nowHidden = extra.classList.toggle("hidden");
+      toggle.textContent = nowHidden ? `+${toggle.dataset.moreCount} more` : "Show less";
+    };
+    toggle.addEventListener("click", expandToggle);
+    toggle.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        expandToggle(e);
+      }
     });
   });
 
@@ -1024,7 +1050,7 @@ async function fetchDensityMapAvailability(results) {
 function buildLigandsSheetData(results, densityAvailability) {
   const rows = [[
     "UniProt accession", "Complex", "Ligand",
-    "Ligand classification", "Binding site classification",
+    "Ligand classification", "Binding site classification", "Binding site residues",
     "R-free", "R-work", "Rejected molecules",
     "Electron density map available",
   ]];
@@ -1035,7 +1061,7 @@ function buildLigandsSheetData(results, densityAvailability) {
     if (r.error) {
       // Not-found / failed structure: still listed, everything except
       // the complex ID left blank.
-      rows.push(["", complex, "", "", "", "", "", "", ""]);
+      rows.push(["", complex, "", "", "", "", "", "", "", ""]);
       return;
     }
 
@@ -1046,7 +1072,7 @@ function buildLigandsSheetData(results, densityAvailability) {
     const ligands = r.ligands || [];
 
     if (!ligands.length) {
-      rows.push([r.uniprot || "", complex, "", "", "", fmtNum(sd.rFree), fmtNum(sd.rWork), rejectedText, mapAvail]);
+      rows.push([r.uniprot || "", complex, "", "", "", "", fmtNum(sd.rFree), fmtNum(sd.rWork), rejectedText, mapAvail]);
       return;
     }
 
@@ -1057,6 +1083,7 @@ function buildLigandsSheetData(results, densityAvailability) {
         (l.ligand_residues || []).join("; "),
         l.ligand_quality || "",
         l.binding_site_quality || "",
+        (l.binding_site_residues || []).join("; "),
         fmtNum(sd.rFree),
         fmtNum(sd.rWork),
         rejectedText,
