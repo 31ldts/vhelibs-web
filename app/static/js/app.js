@@ -1017,11 +1017,18 @@ function formatLigandNames(l) {
 // Binding-site residues annotated with how each was classified. A residue
 // absent from residue_qualities was never flagged as dubious/bad to begin
 // with, so it's Good by construction.
+const QUALITY_LETTER = { Bad: "B", Dubious: "D", Good: "G" };
+const QUALITY_SEVERITY = { Bad: 0, Dubious: 1, Good: 2 };
+
 function formatBindingSiteResidues(l) {
   const residues = l.binding_site_residues || [];
   if (!residues.length) return "";
   const qualities = l.residue_qualities || {};
-  return residues.map(res => `${res} (${qualities[res] || "Good"})`).join("; ");
+  return residues
+    .map(res => ({ res, quality: qualities[res] || "Good" }))
+    .sort((a, b) => QUALITY_SEVERITY[a.quality] - QUALITY_SEVERITY[b.quality])
+    .map(({ res, quality }) => `${res} (${QUALITY_LETTER[quality]})`)
+    .join("; ");
 }
 
 /**
@@ -1153,13 +1160,19 @@ function computeColumnWidths(rows) {
 // "Wrap Text" cell formatting applied throughout, so long content
 // continues on further lines inside the same cell instead of widening the
 // column indefinitely.
-function addWrappedSheet(workbook, name, rows) {
+function addWrappedSheet(workbook, name, rows, noWrapColumns = []) {
   const ws = workbook.addWorksheet(name);
   ws.addRows(rows);
   computeColumnWidths(rows).forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+  const header = rows[0] || [];
+  const noWrapIndices = new Set(
+    noWrapColumns.map(colName => header.indexOf(colName)).filter(i => i >= 0)
+  );
+
   ws.eachRow(row => {
-    row.eachCell({ includeEmpty: true }, cell => {
-      cell.alignment = { wrapText: true, vertical: "top" };
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      cell.alignment = { wrapText: !noWrapIndices.has(colNumber - 1), vertical: "top" };
     });
   });
   return ws;
@@ -1187,7 +1200,8 @@ async function exportResults() {
     // Ligands sheet first, since it's the one people actually want to
     // look at; Parameters is reference material for the run that produced
     // it, kept second.
-    addWrappedSheet(wb, "Ligands", buildLigandsSheetData(lastAnalysisResults, densityAvailability));
+    addWrappedSheet(wb, "Ligands", buildLigandsSheetData(lastAnalysisResults, densityAvailability),
+      ["BS Residues"]);
     addWrappedSheet(wb, "Parameters", buildParametersSheetData(lastAnalysisConfig || {}));
 
     const buffer = await wb.xlsx.writeBuffer();
