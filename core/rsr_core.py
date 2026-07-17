@@ -515,8 +515,11 @@ def _collect_atoms(structure, inner_distance, metals, ligand_blacklist):
             :func:`_file_atom`.
 
     Returns:
-        tuple: ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands)``
-        — see :func:`parse_mmcif_file` for the meaning of each element.
+        tuple: ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands,
+        res_comp_ids)`` — see :func:`parse_mmcif_file` for the meaning of
+        each element. ``res_comp_ids`` maps every residue key seen to its
+        ``auth_comp_id`` (e.g. ``"ATP"``), used by :func:`parse_mmcif_file`
+        to attach chemical names to ligand residues.
 
     Raises:
         None
@@ -525,6 +528,7 @@ def _collect_atoms(structure, inner_distance, metals, ligand_blacklist):
     res_atom_dict = {}
     ligand_res_atom_dict = {}
     notligands = {}
+    res_comp_ids = {}
 
     for model in structure:
         for chain in model:
@@ -533,6 +537,7 @@ def _collect_atoms(structure, inner_distance, metals, ligand_blacklist):
                 asym_id = chain.name            # auth_asym_id  (e.g. "A")
                 seq_id = residue.seqid.num      # auth_seq_id   (integer)
                 res_key = _fmt_reskey(comp_id, asym_id, seq_id)
+                res_comp_ids[res_key] = comp_id
                 is_hetatm = _is_hetatm(residue)
 
                 for atom in residue:
@@ -542,7 +547,7 @@ def _collect_atoms(structure, inner_distance, metals, ligand_blacklist):
                               res_atom_dict, ligand_res_atom_dict, notligands,
                               metals, ligand_blacklist)
 
-    return natoms, res_atom_dict, ligand_res_atom_dict, notligands
+    return natoms, res_atom_dict, ligand_res_atom_dict, notligands, res_comp_ids
 
 
 def _extract_covalent_links(structure):
@@ -577,6 +582,50 @@ def _extract_covalent_links(structure):
     return links
 
 
+def _extract_chem_comp_names(mmciffilepath):
+    """Read the ``_chem_comp.name`` records embedded in an entry's own mmCIF file.
+
+    Full PDB entry mmCIF files (as downloaded by
+    :func:`core.pdb_utils.get_pdb_file`) include a ``_chem_comp`` loop
+    describing every distinct residue/component present in the entry —
+    standard amino/nucleic acids as well as ligands/cofactors — including
+    its full chemical name (e.g. component ``"ATP"`` -> name
+    ``"ADENOSINE-5'-TRIPHOSPHATE"``). This is purely for display (labelling
+    ligands in results), so no extra network request against the
+    chemical-component dictionary is needed; whatever the entry's own file
+    already contains is used as-is.
+
+    Args:
+        mmciffilepath (str): Path to the mmCIF file to read (may be
+            gzip-compressed; gemmi handles that transparently, same as
+            :func:`parse_mmcif_file`'s structure parsing).
+
+    Returns:
+        dict: ``{comp_id.upper(): name}`` for every component with a
+        non-empty, non-placeholder (``"?"``/``"."``) name. Returns ``{}``
+        if the file has no ``_chem_comp`` loop, or on any parsing error
+        (e.g. a PDB-REDO ``.cif`` that doesn't carry this loop at all).
+
+    Raises:
+        None: Parsing errors are caught internally and logged as a
+            warning; the function returns ``{}`` instead of propagating.
+    """
+    try:
+        doc = gemmi.cif.read(mmciffilepath)
+        block = doc.sole_block()
+        table = block.find("_chem_comp.", ["id", "name"])
+        names = {}
+        for row in table:
+            comp_id = row.str(0).strip().upper()
+            name = row.str(1).strip()
+            if comp_id and name and name not in ("?", "."):
+                names[comp_id] = name
+        return names
+    except Exception as exc:
+        logger.warning("Could not read _chem_comp names from %s: %s", mmciffilepath, exc)
+        return {}
+
+
 def parse_mmcif_file(mmciffilepath, pdbid, inner_distance, metals=None, ligand_blacklist=None):
     """Parse an mmCIF file into atom and covalent-link dictionaries.
 
@@ -600,8 +649,8 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance, metals=None, ligand_b
             when not given.
 
     Returns:
-        tuple: On success, a 5-tuple
-        ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands, links)``:
+        tuple: On success, a 6-tuple
+        ``(natoms, res_atom_dict, ligand_res_atom_dict, notligands, links, res_names)``:
 
             - natoms (float): Total occupancy-weighted atom count.
             - res_atom_dict (dict): Mapping of residue key to a set of
@@ -615,6 +664,14 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance, metals=None, ligand_b
             - links (list): List of ``(res1, res2, bond_length)`` tuples
               describing covalent/disulfide/metal-coordination
               connections.
+            - res_names (dict): Mapping of residue key to its full
+              chemical name (e.g. ``"ADENOSINE-5'-TRIPHOSPHATE"`` for an
+              ``"ATP"`` residue), taken from the entry's own
+              ``_chem_comp`` records (see
+              :func:`_extract_chem_comp_names`). A residue is absent from
+              this dict if its component has no usable name in the file
+              (this is common for PDB-REDO ``.cif`` files, which don't
+              carry a ``_chem_comp`` loop at all).
 
         On failure, a 1-tuple ``(error_string,)`` describing the parsing
         error.
@@ -632,11 +689,18 @@ def parse_mmcif_file(mmciffilepath, pdbid, inner_distance, metals=None, ligand_b
     except Exception as exc:
         return (f"Could not parse mmCIF file {mmciffilepath}: {exc}",)
 
-    natoms, res_atom_dict, ligand_res_atom_dict, notligands = _collect_atoms(
+    natoms, res_atom_dict, ligand_res_atom_dict, notligands, res_comp_ids = _collect_atoms(
         structure, inner_distance, metals, ligand_blacklist)
     links = _extract_covalent_links(structure)
 
-    return natoms, res_atom_dict, ligand_res_atom_dict, notligands, links
+    comp_names = _extract_chem_comp_names(mmciffilepath)
+    res_names = {
+        res_key: comp_names[comp_id.upper()]
+        for res_key, comp_id in res_comp_ids.items()
+        if comp_id.upper() in comp_names
+    }
+
+    return natoms, res_atom_dict, ligand_res_atom_dict, notligands, links, res_names
 
 
 # ---------------------------------------------------------------------------
@@ -1512,7 +1576,7 @@ def _residue_quality(residue, good_rsr, dubious_rsr, bad_rsr):
 
 
 def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source,
-                      good_rsr=None, dubious_rsr=None, bad_rsr=None):
+                      good_rsr=None, dubious_rsr=None, bad_rsr=None, res_names=None):
     """Convert one :func:`get_binding_site` result tuple into a JSON-safe dict.
 
     Residues belonging to any *other* ligand present in the structure
@@ -1537,6 +1601,10 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
         dubious_rsr (set, optional): Set of residue keys classified as
             "dubious".
         bad_rsr (set, optional): Set of residue keys classified as "bad".
+        res_names (dict, optional): Mapping of residue key to full
+            chemical name, as returned by :func:`parse_mmcif_file`. Used
+            to fill ``"ligand_names"`` below; a residue absent from this
+            dict yields ``None`` at the corresponding position.
 
     Returns:
         dict or None: The serialized ligand result, or ``None`` if
@@ -1557,9 +1625,17 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
     good_rsr = good_rsr or set()
     dubious_rsr = dubious_rsr or set()
     bad_rsr = bad_rsr or set()
+    res_names = res_names or {}
+
+    sorted_ligand_residues = sorted(ligandresidues)
 
     return {
-        "ligand_residues": sorted(ligandresidues),
+        "ligand_residues": sorted_ligand_residues,
+        # One entry per residue in "ligand_residues" above (same order),
+        # taken from the entry's own _chem_comp records — see
+        # _extract_chem_comp_names. None where the file doesn't carry a
+        # usable name for that component (e.g. PDB-REDO files).
+        "ligand_names": [res_names.get(r) for r in sorted_ligand_residues],
         "binding_site_residues": sorted(display_binding_site),
         "residues_to_examine": sorted(display_rte),
         # Per-residue quality for every entry in "residues_to_examine"
@@ -1604,7 +1680,7 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
 
 def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
                   res_atom_dict, ligand_res_atom_dict, cfg,
-                  good_rsr=None, dubious_rsr=None, bad_rsr=None):
+                  good_rsr=None, dubious_rsr=None, bad_rsr=None, res_names=None):
     """Assemble the final JSON-serializable result dict for a PDB entry.
 
     Args:
@@ -1625,6 +1701,8 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
             :func:`_serialize_ligand` for the ``"residue_qualities"`` map.
         dubious_rsr (set, optional): See above.
         bad_rsr (set, optional): See above.
+        res_names (dict, optional): Passed through to
+            :func:`_serialize_ligand` for the ``"ligand_names"`` list.
 
     Returns:
         dict: See :func:`parse_binding_site` for the shape of a success
@@ -1638,7 +1716,8 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
     result_ligands = []
     for data in ligand_bs_list:
         serialized = _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source,
-                                       good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr)
+                                       good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr,
+                                       res_names=res_names)
         if serialized:
             result_ligands.append(serialized)
 
@@ -1711,7 +1790,7 @@ def parse_binding_site(pdbid, cfg=None):
                                metals=cfg.metals, ligand_blacklist=cfg.ligand_blacklist)
     if len(parsed) == 1:
         return {"pdbid": pdbid, "error": str(parsed[0])}
-    natoms, res_atom_dict, ligand_res_atom_dict, notligands, links = parsed
+    natoms, res_atom_dict, ligand_res_atom_dict, notligands, links, res_names = parsed
 
     _add_dpi(struc_dict, pdbid_stats, natoms, cfg)
 
@@ -1749,7 +1828,8 @@ def parse_binding_site(pdbid, cfg=None):
     return _build_result(
         pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
         res_atom_dict, ligand_res_atom_dict, cfg,
-        good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr)
+        good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr,
+        res_names=res_names)
 
 
 # Default cap on how many PDB entries are analysed concurrently. Each entry's

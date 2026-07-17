@@ -49,7 +49,7 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
 
 ## Features
 
-- **Batch analysis** of PDB IDs and/or UniProt accessions (each UniProt accession is
+- **Batch analysis** of PDB IDs and/or UniProt IDs (each UniProt ID is
   auto-expanded, via the RCSB Search API, to every PDB structure that references it).
 - **Configurable quality thresholds** with sensible crystallographic defaults (RSR, RSCC,
   occupancy, R-free, tolerance, binding-site distance cutoff).
@@ -126,9 +126,9 @@ The app is a single-page interface with four tabs: **Analysis**, **Results**, **
 
 ### Analysis tab
 
-1. Enter one or more **PDB IDs and/or UniProt accessions** in the text box, separated by commas,
+1. Enter one or more **PDB IDs and/or UniProt IDs** in the text box, separated by commas,
    whitespace, or newlines (e.g. `1cbs, 3dzu, 4hhb, P00734`) — or load them from a `.txt`/`.csv`
-   file. UniProt accessions are automatically resolved to every associated PDB structure.
+   file. UniProt IDs are automatically resolved to every associated PDB structure.
 2. Optionally check **Use PDB-REDO structures** to analyse PDB-REDO's re-refined coordinates and
    statistics instead of the standard RCSB/PDBe deposition.
 3. Adjust the **quality thresholds** (RSR, RSCC, R-free, occupancy, tolerance, binding-site
@@ -182,7 +182,7 @@ two-sheet Excel workbook:
 - **Parameters** — every threshold/option the analysis was submitted with (RSR, RSCC, R-free,
   occupancy, tolerance, distance, PDB-REDO, advanced checks, blacklist customization, export
   timestamp).
-- **Ligands** — one row per ligand: UniProt accession, complex (PDB ID), ligand, ligand
+- **Ligands** — one row per ligand: UniProt ID, PDB ID, ligand, ligand
   classification, binding-site classification, R-free, R-work, rejected molecules, and whether an
   electron-density map is available for that structure. Structures that couldn't be analysed are
   still listed, with the fields that have no data left blank.
@@ -331,8 +331,8 @@ A few notes on the core modules:
 }
 ```
 
-`pdbids` accepts PDB IDs, UniProt accessions, or a mix of both, separated by commas, whitespace,
-or newlines. Each UniProt accession is resolved via the RCSB Search API to every PDB entry whose
+`pdbids` accepts PDB IDs, UniProt IDs, or a mix of both, separated by commas, whitespace,
+or newlines. Each UniProt ID is resolved via the RCSB Search API to every PDB entry whose
 polymer entities reference it; unresolvable accessions are omitted and reported in an optional
 `warnings` array in the response.
 
@@ -350,7 +350,7 @@ it never modifies VHELIBS' shared defaults.
 ```
 
 `total` reflects the number of PDB entries actually queued for analysis, i.e. after expanding any
-UniProt accessions in the request.
+UniProt ID in the request.
 
 ### `GET /api/blacklist`
 
@@ -437,7 +437,7 @@ window from EBI's density server. `density_atoms` gives the per-atom coordinates
 used by the 3D viewer to clip displayed density to a small sphere around each atom. Both are only
 populated for X-ray entries with usable validation/density data.
 
-`uniprot` is the UniProt accession that produced this PDB entry, or `null` if it was given
+`uniprot` is the UniProt ID that produced this PDB entry, or `null` if it was given
 directly as a PDB ID. `other_ligands` lists residues belonging to any *other* ligand present in
 the same structure (still counted towards this ligand's own scoring, but excluded from
 `binding_site_residues`/`residues_to_examine`/`density_boxes`/`density_atoms` so the 3D viewer

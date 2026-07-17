@@ -280,8 +280,8 @@ class TestParseMmcifFile:
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
             result = rsr_core.parse_mmcif_file("/fake/path.cif", "1cbs", inner_distance=20.25)
 
-        assert len(result) == 5
-        natoms, res_atom_dict, ligand_res_atom_dict, notligands, links = result
+        assert len(result) == 6
+        natoms, res_atom_dict, ligand_res_atom_dict, notligands, links, res_names = result
 
         protein_key = format_reskey("ALA", "A", 1)
         ligand_key = format_reskey("REA", "A", 200)
@@ -300,6 +300,10 @@ class TestParseMmcifFile:
         # (the water `continue` happens after the natoms increment).
         assert natoms == pytest.approx(5.0)  # 5 atoms, occupancy 1.0 each
         assert links == []
+        # /fake/path.cif doesn't exist on disk, so the separate
+        # _chem_comp-name read (gemmi.cif.read, not mocked here) fails and
+        # is swallowed -> no names available, not a crash.
+        assert res_names == {}
 
     def test_zero_inner_distance_skips_protein_atoms(self):
         protein_res = make_gemmi_residue(
@@ -307,7 +311,7 @@ class TestParseMmcifFile:
         structure = make_gemmi_structure({"A": [protein_res]})
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, res_atom_dict, _, _, _ = rsr_core.parse_mmcif_file(
+            _, res_atom_dict, _, _, _, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=0)
 
         assert res_atom_dict == {}
@@ -318,7 +322,7 @@ class TestParseMmcifFile:
         structure = make_gemmi_structure({"A": [protein_res]})
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, res_atom_dict, _, _, _ = rsr_core.parse_mmcif_file(
+            _, res_atom_dict, _, _, _, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=20.25)
 
         assert len(res_atom_dict) == 1
@@ -329,7 +333,7 @@ class TestParseMmcifFile:
         structure = make_gemmi_structure({"A": [ligand_res]})
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, res_atom_dict, ligand_res_atom_dict, notligands, _ = rsr_core.parse_mmcif_file(
+            _, res_atom_dict, ligand_res_atom_dict, notligands, _, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=20.25)
 
         key = format_reskey("REA", "A", 200)
@@ -344,7 +348,7 @@ class TestParseMmcifFile:
         structure = make_gemmi_structure({"A": [so4_res]})
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, res_atom_dict, ligand_res_atom_dict, notligands, _ = rsr_core.parse_mmcif_file(
+            _, res_atom_dict, ligand_res_atom_dict, notligands, _, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=20.25)
 
         key = format_reskey("SO4", "A", 50)
@@ -362,7 +366,7 @@ class TestParseMmcifFile:
             gemmi.ConnectionType.MetalC, "A", "HIS", 8, "NE2", "A", "ZN", 401, "ZN"))
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, _, _, _, links = rsr_core.parse_mmcif_file(
+            _, _, _, _, links, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=20.25)
 
         assert len(links) == 3
@@ -377,7 +381,7 @@ class TestParseMmcifFile:
             gemmi.ConnectionType.Unknown, "A", "SER", 1, "OG", "A", "ASP", 2, "OD1"))
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, _, _, _, links = rsr_core.parse_mmcif_file(
+            _, _, _, _, links, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=20.25)
 
         assert links == []
@@ -388,7 +392,7 @@ class TestParseMmcifFile:
             gemmi.ConnectionType.Covale, "A", "ALA", 1, "CA", "B", "REA", 200, "C1"))
 
         with patch("core.rsr_core.gemmi.read_structure", return_value=structure):
-            _, _, _, _, links = rsr_core.parse_mmcif_file(
+            _, _, _, _, links, _ = rsr_core.parse_mmcif_file(
                 "/fake/path.cif", "1cbs", inner_distance=20.25)
 
         res1, res2, _ = links[0]
@@ -954,7 +958,7 @@ class TestParseBindingSite:
                    return_value=({"1cbs": True}, {"X": {"RSR": 0.1, "RSCC": 0.9, "occupancy": 1.0}})), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
              patch("core.rsr_core.parse_mmcif_file",
-                   return_value=(10.0, {}, {}, {}, [])):  # empty ligand_res_atom_dict
+                   return_value=(10.0, {}, {}, {}, [], {})):  # empty ligand_res_atom_dict
             result = rsr_core.parse_binding_site("1cbs", cfg)
         assert result == {"pdbid": "1cbs", "error": "No ligands found"}
 
@@ -975,6 +979,7 @@ class TestParseBindingSite:
             {ligand_key: {ligand_atom}},
             {},
             [],
+            {ligand_key: "RETINOIC ACID"},
         )
         rcsb_report = {"1CBS": {"rFree": 0.2, "rWork": 0.18}}
 
@@ -989,6 +994,7 @@ class TestParseBindingSite:
         assert len(result["ligands"]) == 1
         lig = result["ligands"][0]
         assert lig["ligand_residues"] == [ligand_key]
+        assert lig["ligand_names"] == ["RETINOIC ACID"]
         assert lig["binding_site_residues"] == [bs_key]
         assert lig["ligand_quality"] == "Good"
         assert lig["binding_site_quality"] == "Good"
@@ -1001,7 +1007,7 @@ class TestParseBindingSite:
         ligand_key = format_reskey("REA", "A", 200)
         ligand_atom = make_real_atom("REA", "A", 200, 0, 0, 0)
         edd_dict = {ligand_key: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
-        parsed = (5.0, {}, {ligand_key: {ligand_atom}}, {}, [])
+        parsed = (5.0, {}, {ligand_key: {ligand_atom}}, {}, [], {})
 
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
@@ -1021,7 +1027,7 @@ class TestParseBindingSite:
         # RSR/RSCC given, but no "occupancy" key -> should be filled from
         # the average occupancy of the ligand's own atoms (0.75).
         edd_dict = {ligand_key: {"RSR": 0.1, "RSCC": 0.95}}
-        parsed = (5.0, {}, {ligand_key: {ligand_atom1, ligand_atom2}}, {}, [])
+        parsed = (5.0, {}, {ligand_key: {ligand_atom1, ligand_atom2}}, {}, [], {})
 
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
@@ -1043,7 +1049,7 @@ class TestParseBindingSite:
             ligand_key: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0},
             ghost_key: {"RSR": 0.2, "RSCC": 0.90},
         }
-        parsed = (5.0, {}, {ligand_key: {ligand_atom}}, {}, [])
+        parsed = (5.0, {}, {ligand_key: {ligand_atom}}, {}, [], {})
 
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
@@ -1063,7 +1069,7 @@ class TestParseBindingSite:
         ligand_key = format_reskey("REA", "A", 200)
         ligand_atom = make_real_atom("REA", "A", 200, 0, 0, 0)
         edd_dict = {ligand_key: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
-        parsed = (100.0, {}, {ligand_key: {ligand_atom}}, {}, [])
+        parsed = (100.0, {}, {ligand_key: {ligand_atom}}, {}, [], {})
         rcsb_report = {
             "1CBS": {
                 "rFree": 0.2, "rWork": 0.18, "nreflections": 5000,
@@ -1087,7 +1093,7 @@ class TestParseBindingSite:
         ligand_key = format_reskey("REA", "A", 200)
         ligand_atom = make_real_atom("REA", "A", 200, 0, 0, 0)
         edd_dict = {ligand_key: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
-        parsed = (100.0, {}, {ligand_key: {ligand_atom}}, {}, [])
+        parsed = (100.0, {}, {ligand_key: {ligand_atom}}, {}, [], {})
         rcsb_report = {"1CBS": {"rFree": 0.2, "rWork": 0.18, "nreflections": 0}}
 
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value=rcsb_report), \
@@ -1119,6 +1125,7 @@ class TestParseBindingSite:
             {ligand_key: {ligand_atom}},
             {},
             links,
+            {},
         )
 
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \

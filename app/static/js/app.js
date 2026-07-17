@@ -950,7 +950,7 @@ const exportStatus     = document.getElementById("exportStatus");
 // [config key, English column label] — order here is the order rows
 // appear in the "Parameters" sheet.
 const PARAM_LABELS = [
-  ["pdbids",           "PDB IDs / UniProt accessions (as entered)"],
+  ["pdbids",           "PDB IDs / UniProt IDs (as entered)"],
   ["rsr_upper",        "RSR upper threshold (Bad above this)"],
   ["rsr_lower",        "RSR lower threshold (Good below this)"],
   ["rscc_min",         "RSCC minimum"],
@@ -990,13 +990,38 @@ function buildParametersSheetData(cfg) {
 }
 
 function fmtNum(v) {
-  return (v != null && !Number.isNaN(v)) ? v : "";
+  return (v != null && !Number.isNaN(v)) ? v : null;
 }
 
 function rejectedResiduesText(rejected) {
   const keys = Object.keys(rejected || {});
   if (!keys.length) return "";
-  return keys.map(k => `${k}: ${rejected[k]}`).join("; ");
+  return keys.map(k => `${k}`).join("; ");
+}
+
+// Placeholder used throughout the xlsx export whenever a piece of data
+// genuinely doesn't exist for a row.
+const XLSX_NOT_AVAILABLE = "Not Available";
+
+function orNA(value) {
+  return (value === null || value === undefined || value === "") ? XLSX_NOT_AVAILABLE : value;
+}
+
+// One name per entry in l.ligand_residues (same order).
+function formatLigandNames(l) {
+  const names = l.ligand_names || [];
+  if (!names.length) return "";
+  return names.map(n => n || XLSX_NOT_AVAILABLE).join("; ");
+}
+
+// Binding-site residues annotated with how each was classified. A residue
+// absent from residue_qualities was never flagged as dubious/bad to begin
+// with, so it's Good by construction.
+function formatBindingSiteResidues(l) {
+  const residues = l.binding_site_residues || [];
+  if (!residues.length) return "";
+  const qualities = l.residue_qualities || {};
+  return residues.map(res => `${res} (${qualities[res] || "Good"})`).join("; ");
 }
 
 /**
@@ -1049,43 +1074,56 @@ async function fetchDensityMapAvailability(results) {
 
 function buildLigandsSheetData(results, densityAvailability) {
   const rows = [[
-    "UniProt accession", "Complex", "Ligand",
-    "Ligand classification", "Binding site classification", "Binding site residues",
-    "R-free", "R-work", "Rejected molecules",
-    "Electron density map available",
+    "UniProt ID", "PDB ID", "Ligand ID", "Ligand Name",
+    "Ligand Class.", "BS Class.", "BS Residues",
+    "R-free", "R-work", "Rejected Molecules",
+    "EDM Available",
   ]];
 
   results.forEach(r => {
     const complex = (r.pdbid || "").toUpperCase();
+    const uniprot = orNA(r.uniprot);
 
     if (r.error) {
-      // Not-found / failed structure: still listed, everything except
-      // the complex ID left blank.
-      rows.push(["", complex, "", "", "", "", "", "", "", ""]);
+      // The backend never got past the initial fetch/parse for this entry
+      // (not found, download failure, no ligand atoms at all, …), so
+      // nothing beyond the UniProt tag and complex ID was ever computed.
+      rows.push([uniprot, complex,
+        XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE,
+        XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE]);
       return;
     }
 
     const avail = densityAvailability.get(r.pdbid.toLowerCase());
-    const mapAvail = avail === true ? "Yes" : avail === false ? "No" : "";
+    const mapAvail = avail === true ? "Yes" : avail === false ? "No" : XLSX_NOT_AVAILABLE;
     const sd = r.struc_dict || {};
+    const rFree = orNA(fmtNum(sd.rFree));
+    const rWork = orNA(fmtNum(sd.rWork));
     const rejectedText = rejectedResiduesText(r.rejected);
     const ligands = r.ligands || [];
 
     if (!ligands.length) {
-      rows.push([r.uniprot || "", complex, "", "", "", "", fmtNum(sd.rFree), fmtNum(sd.rWork), rejectedText, mapAvail]);
+      // Analysed successfully, but nothing here qualified as a ligand
+      // (e.g. everything present was blacklisted): fill in every
+      // structure-level field we do have, and mark the per-ligand columns
+      // — which genuinely don't apply to this row — as not available.
+      rows.push([uniprot, complex,
+        XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE, XLSX_NOT_AVAILABLE,
+        rFree, rWork, rejectedText, mapAvail]);
       return;
     }
 
     ligands.forEach(l => {
       rows.push([
-        r.uniprot || "",
+        uniprot,
         complex,
-        (l.ligand_residues || []).join("; "),
-        l.ligand_quality || "",
-        l.binding_site_quality || "",
-        (l.binding_site_residues || []).join("; "),
-        fmtNum(sd.rFree),
-        fmtNum(sd.rWork),
+        orNA((l.ligand_residues || []).join("; ")),
+        orNA(formatLigandNames(l)),
+        orNA(l.ligand_quality),
+        orNA(l.binding_site_quality),
+        orNA(formatBindingSiteResidues(l)),
+        rFree,
+        rWork,
         rejectedText,
         mapAvail,
       ]);
@@ -1095,12 +1133,44 @@ function buildLigandsSheetData(results, densityAvailability) {
   return rows;
 }
 
+const XLSX_MAX_COL_WIDTH = 30;
+
+// Longest cell value per column, capped at XLSX_MAX_COL_WIDTH
+function computeColumnWidths(rows) {
+  const colCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const widths = new Array(colCount).fill(8);
+  rows.forEach(row => {
+    row.forEach((cell, i) => {
+      const len = cell == null ? 0 : String(cell).length;
+      widths[i] = Math.min(XLSX_MAX_COL_WIDTH, Math.max(widths[i], len));
+    });
+  });
+  return widths;
+}
+
+// Adds `rows` (array-of-arrays, first row = header) as a new worksheet on
+// `workbook`, with column widths capped at XLSX_MAX_COL_WIDTH and real
+// "Wrap Text" cell formatting applied throughout, so long content
+// continues on further lines inside the same cell instead of widening the
+// column indefinitely.
+function addWrappedSheet(workbook, name, rows) {
+  const ws = workbook.addWorksheet(name);
+  ws.addRows(rows);
+  computeColumnWidths(rows).forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  ws.eachRow(row => {
+    row.eachCell({ includeEmpty: true }, cell => {
+      cell.alignment = { wrapText: true, vertical: "top" };
+    });
+  });
+  return ws;
+}
+
 async function exportResults() {
   if (!lastAnalysisResults || !lastAnalysisResults.length) {
     alert("There are no results to export yet. Run an analysis first.");
     return;
   }
-  if (typeof XLSX === "undefined") {
+  if (typeof ExcelJS === "undefined") {
     alert("The export library failed to load. Check your internet connection and try again.");
     return;
   }
@@ -1112,16 +1182,27 @@ async function exportResults() {
   try {
     const densityAvailability = await fetchDensityMapAvailability(lastAnalysisResults);
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb, XLSX.utils.aoa_to_sheet(buildParametersSheetData(lastAnalysisConfig || {})), "Parameters"
-    );
-    XLSX.utils.book_append_sheet(
-      wb, XLSX.utils.aoa_to_sheet(buildLigandsSheetData(lastAnalysisResults, densityAvailability)), "Ligands"
-    );
+    const wb = new ExcelJS.Workbook();
 
+    // Ligands sheet first, since it's the one people actually want to
+    // look at; Parameters is reference material for the run that produced
+    // it, kept second.
+    addWrappedSheet(wb, "Ligands", buildLigandsSheetData(lastAnalysisResults, densityAvailability));
+    addWrappedSheet(wb, "Parameters", buildParametersSheetData(lastAnalysisConfig || {}));
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    XLSX.writeFile(wb, `vhelibs_results_${stamp}.xlsx`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vhelibs_results_${stamp}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   } catch (err) {
     console.error("[VHELIBS] Export failed:", err);
     alert("Could not export the results: " + err.message);

@@ -46,7 +46,7 @@ bp = Blueprint("main", __name__)
 _jobs = {}
 _jobs_lock = threading.Lock()
 
-# Canonical UniProt accession pattern (6-char, or 10-char introduced in
+# Canonical UniProt ID pattern (6-char, or 10-char introduced in
 # later releases), e.g. "P00734", "A0A0A0MRZ7". Anything that doesn't match
 # this is treated as a plain PDB ID.
 UNIPROT_RE = re.compile(
@@ -110,7 +110,7 @@ def _with_cache_dir(view):
 
 def _expand_ids(tokens):
     """
-    Expand any UniProt accessions or entry names/mnemonics found in
+    Expand any UniProt ID or entry names/mnemonics found in
     *tokens* into the PDB IDs of the structures that reference them
     (core.pdb_utils.get_pdbids_for_uniprot). Entry names (e.g.
     "PPARG_HUMAN") are first resolved to their primary accession via
@@ -123,7 +123,7 @@ def _expand_ids(tokens):
       origin_map  – {pdbid.lower(): uniprot_accession_or_None}, so results
                     can be tagged with the UniProt code they came from
       unresolved  – UniProt-looking tokens that returned no PDB entries
-                    (or, for entry names, no matching UniProt accession)
+                    (or, for entry names, no matching UniProt ID)
     """
     pdbids = []
     origin_map = {}
@@ -167,7 +167,7 @@ def _run_job(job_id, pdbids, cfg, origin_map=None):
     # — see that function's docstring for why a thread pool is safe here.
     # This wrapper only adds the two things that are specific to *this*
     # web job: live progress updates for /api/status polling, and tagging
-    # each result with the UniProt accession (if any) that produced it.
+    # each result with the UniProt ID (if any) that produced it.
     origin_map = origin_map or {}
 
     def _on_progress(completed, total):
@@ -182,7 +182,7 @@ def _run_job(job_id, pdbids, cfg, origin_map=None):
     results = analyse_pdbids(pdbids, cfg, on_progress=_on_progress)
 
     for pdbid, res in zip(pdbids, results):
-        # Tag with the UniProt accession that produced this PDB ID, if any,
+        # Tag with the UniProt ID that produced this PDB ID, if any,
         # so the frontend can group/label results accordingly.
         res["uniprot"] = origin_map.get(pdbid.strip().lower())
 
@@ -250,14 +250,14 @@ def analyse():
         tokens = [p.strip() for p in str(raw_ids).replace(",", "\n").split() if p.strip()]
 
     if not tokens:
-        return jsonify({"error": "No PDB IDs or UniProt accessions provided"}), 400
+        return jsonify({"error": "No PDB IDs or UniProt IDs provided"}), 400
 
     pdbids, origin_map, unresolved = _expand_ids(tokens)
 
     if not pdbids:
         msg = "No valid PDB IDs found."
         if unresolved:
-            msg += " Could not find any PDB entries for UniProt accession(s): " + ", ".join(unresolved)
+            msg += " Could not find any PDB entries for UniProt ID(s): " + ", ".join(unresolved)
         return jsonify({"error": msg}), 400
 
     # Build config from request params
@@ -314,7 +314,7 @@ def analyse():
     response = {"job_id": job_id, "total": len(pdbids)}
     if unresolved:
         response["warnings"] = [
-            f"No PDB entries found for UniProt accession {u}" for u in unresolved
+            f"No PDB entries found for UniProt ID {u}" for u in unresolved
         ]
     return jsonify(response)
 

@@ -12,8 +12,10 @@
        exist in the 4.x MolViewSpec grammar. -->
   <script src="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.js"></script>
   <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.css" />
-  <!-- SheetJS: used only to build the two-sheet .xlsx export on the Results tab (see exportResults() in app.js) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- ExcelJS: used only to build the two-sheet .xlsx export on the Results tab (see exportResults() in app.js).
+       Chosen over SheetJS because its free/open-source build actually writes cell styles
+       (e.g. "Wrap Text"), which SheetJS's community build silently drops. -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 </head>
 <body>
   <header class="site-header">
@@ -42,9 +44,9 @@
 
         <!-- Input card -->
         <div class="card">
-          <h2 class="card-title">PDB IDs / UniProt Accessions to Analyse</h2>
+          <h2 class="card-title">PDB IDs / UniProt IDs to Analyse</h2>
           <textarea id="pdbInput" class="pdb-textarea"
-            placeholder="Enter PDB IDs and/or UniProt accessions, separated by commas, spaces or newlines&#10;e.g. 1cbs, 3dzu, 4hhb, P00734"></textarea>
+            placeholder="Enter PDB IDs and/or UniProt IDs, separated by commas, spaces or newlines&#10;e.g. 1cbs, 3dzu, 4hhb, P00734"></textarea>
           <div class="input-row">
             <label class="btn btn-secondary" style="cursor:pointer">
               Load from file…
@@ -355,7 +357,7 @@
 
         <h3>How an analysis works</h3>
         <p>
-          You can enter PDB IDs, UniProt accessions, or a mix of both. A UniProt accession is
+          You can enter PDB IDs, UniProt IDs, or a mix of both. A UniProt ID is
           automatically resolved (via the RCSB Search API) to every PDB structure associated with
           it, and each of those structures is analysed individually.
         </p>
@@ -424,12 +426,16 @@
         <h3>Exporting results</h3>
         <p>
           The Results tab's <strong>Export (.xlsx)</strong> button downloads the current results
-          as a two-sheet Excel workbook, built entirely in your browser. The <em>Parameters</em>
-          sheet records every threshold/option the analysis was submitted with; the
-          <em>Ligands</em> sheet lists one row per ligand — UniProt accession, complex, ligand,
-          ligand/binding-site classification, R-free, R-work, rejected molecules, and whether an
-          electron-density map is available for that structure. Structures that couldn't be analysed are still listed, with blank fields
-          where there's no data.
+          as a two-sheet Excel workbook, built entirely in your browser. The <em>Ligands</em>
+          sheet lists one row per ligand — UniProt ID, PDB ID, ligand ID, ligand name,
+          ligand/binding-site classification, binding-site residues (each annotated with its own
+          Good/Dubious/Bad classification, including any manual correction made in the 3D Viewer),
+          R-free, R-work, rejected molecules, and whether an electron-density map is available for
+          that structure.
+          The <em>Parameters</em> sheet records every threshold/option the analysis was submitted
+          with. Structures that couldn't be analysed, or complexes with no qualifying ligand, are
+          still listed, with <em>Not Available</em> in place of any field that genuinely couldn't
+          be computed.
         </p>
 
         <h3>3D Viewer</h3>

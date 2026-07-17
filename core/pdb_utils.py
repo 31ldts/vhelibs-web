@@ -24,7 +24,7 @@ PDBbase = "https://files.rcsb.org/download/{}.cif.gz"
 PDBREDObase_full = "https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.cif"
 QUERY_TPL = "https://data.rcsb.org/rest/v1/core/entry/{}"
 
-# RCSB Search API — used to resolve a UniProt accession to every PDB entry
+# RCSB Search API — used to resolve a UniProt ID to every PDB entry
 # whose polymer entities reference it (see get_pdbids_for_uniprot below).
 UNIPROT_SEARCH_URL = "https://search.rcsb.org/rcsbsearch/v2/query"
 
@@ -187,7 +187,7 @@ def _build_uniprot_query(uniprot_id, max_results):
     """Build the RCSB Search API request body for a UniProt->PDB lookup.
 
     Args:
-        uniprot_id (str): UniProt accession to search for (exact match).
+        uniprot_id (str): UniProt ID to search for (exact match).
         max_results (int): Maximum number of PDB entries to request.
 
     Returns:
@@ -215,14 +215,14 @@ def _build_uniprot_query(uniprot_id, max_results):
 
 
 def get_pdbids_for_uniprot(uniprot_id, max_results=200):
-    """Resolve a UniProt accession to the PDB entries that reference it.
+    """Resolve a UniProt ID to the PDB entries that reference it.
 
     Queries the RCSB Search API to find every PDB entry whose polymer
-    entities reference the given UniProt accession (e.g. ``"P00734"``),
+    entities reference the given UniProt ID (e.g. ``"P00734"``),
     caching results on disk for subsequent calls.
 
     Args:
-        uniprot_id (str): UniProt accession to resolve. Leading/trailing
+        uniprot_id (str): UniProt ID to resolve. Leading/trailing
             whitespace is stripped and the value is upper-cased before
             use.
         max_results (int, optional): Maximum number of PDB entries to
@@ -230,7 +230,7 @@ def get_pdbids_for_uniprot(uniprot_id, max_results=200):
 
     Returns:
         list: A sorted list of upper-case 4-character PDB IDs referencing
-        the given UniProt accession. Empty if there are no hits or if a
+        the given UniProt ID. Empty if there are no hits or if a
         network/parse failure occurs; callers should treat an empty list
         as "nothing found" rather than a hard error.
 
