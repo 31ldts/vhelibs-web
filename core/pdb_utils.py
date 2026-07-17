@@ -101,6 +101,7 @@ def _extract_report_fields(rawdict):
     info = rawdict.get("rcsb_entry_info") or {}
     refine = (rawdict.get("refine") or [{}])[0]  # first refinement block or empty dict
     cell = rawdict.get("cell") or {}
+    struct = rawdict.get("struct") or {}
 
     method = info.get("experimental_method", "")
 
@@ -114,6 +115,7 @@ def _extract_report_fields(rawdict):
     )
 
     return {
+        "title":                  struct.get("title") or "",
         "experimentalTechnique": method,
         "rFree":                 refine.get("ls_R_factor_R_free") or 9999,
         "rWork":                 refine.get("ls_R_factor_R_work") or 9999,
@@ -147,7 +149,9 @@ def get_custom_report(pdbid, use_cache=True):
 
     Returns:
         dict: A dictionary of the form ``{PDBID: rowdict}`` where
-        ``rowdict`` contains the keys ``"experimentalTechnique"``,
+        ``rowdict`` contains the keys ``"title"`` (the entry's RCSB
+        ``struct.title``, or ``""`` if unavailable),
+        ``"experimentalTechnique"``,
         ``"rFree"``, ``"rWork"``, ``"refinementResolution"``,
         ``"nreflections"``, ``"unitCellAngleAlpha"``,
         ``"unitCellAngleBeta"``, ``"unitCellAngleGamma"``,

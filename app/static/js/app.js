@@ -775,6 +775,7 @@ function buildResultCard(r) {
   header.className = "result-card-header";
   header.innerHTML = `
     <span class="result-pdbid">${esc(r.pdbid.toUpperCase())}</span>
+    ${r.title ? `<span class="result-title" style="margin-left:8px;font-weight:normal;color:var(--clr-muted,#666)">${esc(r.title)}</span>` : ""}
     ${r.uniprot ? `<span class="badge" style="margin-left:6px">UniProt: ${esc(r.uniprot)}</span>` : ""}
     <span class="result-badges">
       ${ligands.length} ligand(s)
@@ -832,6 +833,7 @@ function buildResultCard(r) {
       <div class="ligand-residues">
         <strong>Ligand:</strong>
         ${l.ligand_residues.map(s => `<span class="residue-tag">${esc(s)}</span>`).join("")}
+        ${ligandNameLabel(l)}
       </div>
       ${l.binding_site_residues.length ? `
       <div class="ligand-residues" style="margin-top:6px">
@@ -1008,6 +1010,12 @@ function orNA(value) {
 }
 
 // One name per entry in l.ligand_residues (same order).
+function ligandNameLabel(l) {
+  const names = [...new Set((l.ligand_names || []).filter(Boolean))];
+  if (!names.length) return "";
+  return `<span class="ligand-name-label" style="margin-left:6px;color:var(--clr-muted,#666);white-space:normal;overflow-wrap:break-word;display:inline-block;max-width:100%">${esc(names.join(" / "))}</span>`;
+}
+
 function formatLigandNames(l) {
   const names = l.ligand_names || [];
   if (!names.length) return "";

@@ -981,7 +981,7 @@ class TestParseBindingSite:
             [],
             {ligand_key: "RETINOIC ACID"},
         )
-        rcsb_report = {"1CBS": {"rFree": 0.2, "rWork": 0.18}}
+        rcsb_report = {"1CBS": {"rFree": 0.2, "rWork": 0.18, "title": "Test entry title"}}
 
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value=rcsb_report), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
@@ -990,6 +990,7 @@ class TestParseBindingSite:
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         assert result["pdbid"] == "1cbs"
+        assert result["title"] == "Test entry title"
         assert "error" not in result
         assert len(result["ligands"]) == 1
         lig = result["ligands"][0]

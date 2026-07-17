@@ -1283,6 +1283,8 @@ def _fetch_structure_data(pdbid, cfg):
         edd_dict = pdb_redo_utils.get_ED_data(pdbid, use_cache=cfg.use_cache)
         if not edd_dict:
             return None, None, "No PDB-REDO ED data available"
+        title_report = pdb_utils.get_custom_report(pdbid, use_cache=cfg.use_cache)
+        pdbid_stats["title"] = (title_report.get(pdbid.upper()) or {}).get("title", "") if title_report else ""
         return pdbid_stats, edd_dict, None
 
     report = pdb_utils.get_custom_report(pdbid, use_cache=cfg.use_cache)
@@ -1680,7 +1682,7 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
 
 def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
                   res_atom_dict, ligand_res_atom_dict, cfg,
-                  good_rsr=None, dubious_rsr=None, bad_rsr=None, res_names=None):
+                  good_rsr=None, dubious_rsr=None, bad_rsr=None, res_names=None, title=""):
     """Assemble the final JSON-serializable result dict for a PDB entry.
 
     Args:
@@ -1703,6 +1705,9 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
         bad_rsr (set, optional): See above.
         res_names (dict, optional): Passed through to
             :func:`_serialize_ligand` for the ``"ligand_names"`` list.
+        title (str, optional): The entry's RCSB title (``struct.title``),
+            for display next to the PDB ID in results. Empty string if
+            unavailable.
 
     Returns:
         dict: See :func:`parse_binding_site` for the shape of a success
@@ -1726,6 +1731,7 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
 
     return {
         "pdbid": pdbid,
+        "title": title or "",
         "ligands": result_ligands,
         "rejected": {k: str(v) for k, v in notligands.items()},
         "struc_dict": safe_struc,
@@ -1752,6 +1758,8 @@ def parse_binding_site(pdbid, cfg=None):
         dict: On success, a dict with keys:
 
             - ``"pdbid"`` (str): The analysed PDB identifier.
+            - ``"title"`` (str): The entry's RCSB title (``struct.title``),
+              for display next to the PDB ID; empty string if unavailable.
             - ``"ligands"`` (list): List of per-ligand result dicts, each
               containing ligand/binding-site residues, quality labels,
               scores, density boxes, and density atom coordinates.
@@ -1829,7 +1837,7 @@ def parse_binding_site(pdbid, cfg=None):
         pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict,
         res_atom_dict, ligand_res_atom_dict, cfg,
         good_rsr=good_rsr, dubious_rsr=dubious_rsr, bad_rsr=bad_rsr,
-        res_names=res_names)
+        res_names=res_names, title=pdbid_stats.get("title", ""))
 
 
 # Default cap on how many PDB entries are analysed concurrently. Each entry's
