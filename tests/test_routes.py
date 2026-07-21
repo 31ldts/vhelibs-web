@@ -534,3 +534,192 @@ class TestDensityBoxRoute:
         client.get("/api/density-box/1cbs?min=0,0,0&max=1,1,1")
         called_url = mock_get.call_args[0][0]
         assert "detail=3" in called_url
+
+
+# ---------------------------------------------------------------------------
+# GET /api/density-mask/<pdbid>/<region>
+# ---------------------------------------------------------------------------
+
+class TestDensityMaskRoute:
+    VALID_QS = "min=10,10,10&max=15,15,15&atoms=12,12,12;13.5,12.5,13&radius=1.6"
+
+    def test_unknown_region_returns_404(self, client):
+        resp = client.get(f"/api/density-mask/1cbs/not_a_region?{self.VALID_QS}")
+        assert resp.status_code == 404
+
+    def test_unknown_source_returns_400(self, client):
+        resp = client.get(f"/api/density-mask/1cbs/ligand?{self.VALID_QS}&source=made_up")
+        assert resp.status_code == 400
+
+    def test_missing_min_returns_400(self, client):
+        resp = client.get("/api/density-mask/1cbs/ligand?max=15,15,15&atoms=12,12,12")
+        assert resp.status_code == 400
+
+    def test_missing_max_returns_400(self, client):
+        resp = client.get("/api/density-mask/1cbs/ligand?min=10,10,10&atoms=12,12,12")
+        assert resp.status_code == 400
+
+    def test_malformed_min_returns_400(self, client):
+        resp = client.get("/api/density-mask/1cbs/ligand?min=a,b,c&max=15,15,15&atoms=12,12,12")
+        assert resp.status_code == 400
+
+    def test_missing_atoms_returns_400(self, client):
+        resp = client.get("/api/density-mask/1cbs/ligand?min=10,10,10&max=15,15,15")
+        assert resp.status_code == 400
+
+    def test_blank_atoms_returns_400(self, client):
+        resp = client.get("/api/density-mask/1cbs/ligand?min=10,10,10&max=15,15,15&atoms=")
+        assert resp.status_code == 400
+
+    def test_malformed_atoms_returns_400(self, client):
+        resp = client.get(
+            "/api/density-mask/1cbs/ligand?min=10,10,10&max=15,15,15&atoms=1,2")
+        assert resp.status_code == 400
+
+    @patch("core.density_mask.get_masked_region_map")
+    def test_serves_masked_file_on_success(self, mock_get_mask, client, tmp_path):
+        mapfile = tmp_path / "1cbs_ligand.ccp4"
+        mapfile.write_bytes(b"MASKEDDATA")
+        mock_get_mask.return_value = str(mapfile)
+
+        resp = client.get(f"/api/density-mask/1cbs/ligand?{self.VALID_QS}")
+        assert resp.status_code == 200
+        assert resp.data == b"MASKEDDATA"
+
+    @patch("core.density_mask.get_masked_region_map", return_value=None)
+    def test_404_when_no_density_available(self, mock_get_mask, client):
+        resp = client.get(f"/api/density-mask/1cbs/ligand?{self.VALID_QS}")
+        assert resp.status_code == 404
+        assert "error" in resp.get_json()
+
+    @patch("core.density_mask.get_masked_region_map", return_value=None)
+    def test_pdbid_lowercased_before_lookup(self, mock_get_mask, client):
+        client.get(f"/api/density-mask/1CBS/ligand?{self.VALID_QS}")
+        assert mock_get_mask.call_args[0][0] == "1cbs"
+
+    @patch("core.density_mask.get_masked_region_map")
+    def test_box_and_atoms_are_parsed_and_forwarded(self, mock_get_mask, client, tmp_path):
+        mapfile = tmp_path / "x.ccp4"
+        mapfile.write_bytes(b"X")
+        mock_get_mask.return_value = str(mapfile)
+
+        client.get(
+            "/api/density-mask/1cbs/binding_site"
+            "?min=1,2,3&max=4,5,6&atoms=7,8,9;10,11,12&radius=2.0&source=pdb_redo"
+        )
+
+        args, kwargs = mock_get_mask.call_args
+        pdbid, region, box, atoms = args[:4]
+        assert pdbid == "1cbs"
+        assert region == "binding_site"
+        assert box == {"min": [1.0, 2.0, 3.0], "max": [4.0, 5.0, 6.0]}
+        assert atoms == [{"center": [7.0, 8.0, 9.0]}, {"center": [10.0, 11.0, 12.0]}]
+        assert kwargs.get("radius") == "2.0" or kwargs.get("radius") == 2.0
+        assert kwargs.get("source") == "pdb_redo"
+
+    @patch("core.density_mask.get_masked_region_map")
+    def test_default_radius_and_source_when_not_specified(self, mock_get_mask, client, tmp_path):
+        mapfile = tmp_path / "x.ccp4"
+        mapfile.write_bytes(b"X")
+        mock_get_mask.return_value = str(mapfile)
+
+        client.get("/api/density-mask/1cbs/ligand?min=0,0,0&max=1,1,1&atoms=0.5,0.5,0.5")
+
+        kwargs = mock_get_mask.call_args.kwargs
+        assert float(kwargs.get("radius", 1.6)) == 1.6
+        assert kwargs.get("source", "pdb") == "pdb"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/analyse — background density-mask prefetch
+# (app.routes._prefetch_density_masks / core.density_mask.prefetch_default_masks)
+# ---------------------------------------------------------------------------
+
+class TestDensityMaskPrefetchIntegration:
+    @patch("core.density_mask.prefetch_default_masks")
+    @patch("core.rsr_core.parse_binding_site")
+    def test_prefetch_called_once_per_ligand_with_density_data(
+            self, mock_parse, mock_prefetch, client):
+        mock_parse.return_value = {
+            "pdbid": "1cbs",
+            "ligands": [
+                {
+                    "density_boxes": {"ligand": {"min": [0, 0, 0], "max": [1, 1, 1]}},
+                    "density_atoms": {"ligand": [{"center": [0.5, 0.5, 0.5]}]},
+                },
+                {
+                    "density_boxes": {"ligand": {"min": [2, 2, 2], "max": [3, 3, 3]}},
+                    "density_atoms": {"ligand": [{"center": [2.5, 2.5, 2.5]}]},
+                },
+            ],
+        }
+
+        resp = client.post("/api/analyse", json={"pdbids": "1cbs"})
+        wait_for_job(resp.get_json()["job_id"])
+
+        assert mock_prefetch.call_count == 2
+        called_pdbids = {c.args[0] for c in mock_prefetch.call_args_list}
+        assert called_pdbids == {"1cbs"}
+
+    @patch("core.density_mask.prefetch_default_masks")
+    @patch("core.rsr_core.parse_binding_site")
+    def test_prefetch_skipped_for_ligands_without_density_data(
+            self, mock_parse, mock_prefetch, client):
+        mock_parse.return_value = {
+            "pdbid": "1cbs",
+            "ligands": [{"pdbid": "1cbs"}],  # no density_boxes/density_atoms at all
+        }
+
+        resp = client.post("/api/analyse", json={"pdbids": "1cbs"})
+        wait_for_job(resp.get_json()["job_id"])
+
+        mock_prefetch.assert_not_called()
+
+    @patch("core.density_mask.prefetch_default_masks")
+    @patch("core.rsr_core.parse_binding_site")
+    def test_prefetch_not_called_when_result_has_no_ligands_key(
+            self, mock_parse, mock_prefetch, client):
+        # Mirrors TestAnalyseRoute.test_valid_pdbid_starts_job_and_completes's
+        # bare {"pdbid": "1cbs"} mock return value — must not KeyError.
+        mock_parse.return_value = {"pdbid": "1cbs"}
+
+        resp = client.post("/api/analyse", json={"pdbids": "1cbs"})
+        job = wait_for_job(resp.get_json()["job_id"])
+
+        assert job["results"][0]["pdbid"] == "1cbs"
+        mock_prefetch.assert_not_called()
+
+    @patch("core.density_mask.prefetch_default_masks", side_effect=RuntimeError("boom"))
+    @patch("core.rsr_core.parse_binding_site")
+    def test_prefetch_failure_does_not_fail_the_job(
+            self, mock_parse, mock_prefetch, client):
+        mock_parse.return_value = {
+            "pdbid": "1cbs",
+            "ligands": [{
+                "density_boxes": {"ligand": {"min": [0, 0, 0], "max": [1, 1, 1]}},
+                "density_atoms": {"ligand": [{"center": [0.5, 0.5, 0.5]}]},
+            }],
+        }
+
+        resp = client.post("/api/analyse", json={"pdbids": "1cbs"})
+        job = wait_for_job(resp.get_json()["job_id"])
+
+        assert job["status"] == "done"
+        assert job["results"][0]["pdbid"] == "1cbs"
+
+    @patch("core.density_mask.prefetch_default_masks")
+    @patch("core.rsr_core.parse_binding_site")
+    def test_prefetch_uses_the_shared_module_executor(
+            self, mock_parse, mock_prefetch, client):
+        mock_parse.return_value = {
+            "pdbid": "1cbs",
+            "ligands": [{
+                "density_boxes": {"ligand": {"min": [0, 0, 0], "max": [1, 1, 1]}},
+                "density_atoms": {"ligand": [{"center": [0.5, 0.5, 0.5]}]},
+            }],
+        }
+
+        resp = client.post("/api/analyse", json={"pdbids": "1cbs"})
+        wait_for_job(resp.get_json()["job_id"])
+
+        assert mock_prefetch.call_args.kwargs.get("executor") is routes._density_prefetch_executor
