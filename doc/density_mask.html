@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module density_mask</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">density_mask</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Cdensity_mask.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\density_mask.py</a></td></tr></table>
+    <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;New&nbsp;module,&nbsp;added&nbsp;to&nbsp;move&nbsp;per-atom&nbsp;electron-density&nbsp;masking&nbsp;from&nbsp;the<br>
+#&nbsp;&nbsp;&nbsp;browser&nbsp;(Mol*&nbsp;volume-representation&nbsp;.clip(),&nbsp;one&nbsp;isosurface&nbsp;per&nbsp;atom<br>
+#&nbsp;&nbsp;&nbsp;—&nbsp;see&nbsp;the&nbsp;old&nbsp;buildMvsData()&nbsp;in&nbsp;app.js)&nbsp;to&nbsp;the&nbsp;server,&nbsp;where&nbsp;it&nbsp;can<br>
+#&nbsp;&nbsp;&nbsp;be&nbsp;computed&nbsp;once&nbsp;with&nbsp;gemmi&nbsp;and&nbsp;cached&nbsp;to&nbsp;disk&nbsp;like&nbsp;every&nbsp;other<br>
+#&nbsp;&nbsp;&nbsp;downloaded/derived&nbsp;file&nbsp;(see&nbsp;core.eds_utils.get_edm/get_EDS).<br>
+#<br>
+#&nbsp;&nbsp;&nbsp;For&nbsp;a&nbsp;given&nbsp;(pdbid,&nbsp;region,&nbsp;radius,&nbsp;source),&nbsp;do&nbsp;the&nbsp;masking<br>
+#&nbsp;&nbsp;&nbsp;once&nbsp;here&nbsp;—&nbsp;crop&nbsp;the&nbsp;source&nbsp;CCP4&nbsp;map&nbsp;to&nbsp;the&nbsp;region's&nbsp;padded&nbsp;box&nbsp;and<br>
+#&nbsp;&nbsp;&nbsp;zero&nbsp;out&nbsp;every&nbsp;voxel&nbsp;further&nbsp;than&nbsp;`radius`&nbsp;Å&nbsp;from&nbsp;every&nbsp;atom&nbsp;in&nbsp;that<br>
+#&nbsp;&nbsp;&nbsp;region&nbsp;—&nbsp;and&nbsp;write&nbsp;the&nbsp;result&nbsp;out&nbsp;as&nbsp;its&nbsp;own&nbsp;small&nbsp;.ccp4&nbsp;file.&nbsp;The<br>
+#&nbsp;&nbsp;&nbsp;client&nbsp;then&nbsp;needs&nbsp;exactly&nbsp;ONE&nbsp;isosurface&nbsp;representation&nbsp;per&nbsp;region,<br>
+#&nbsp;&nbsp;&nbsp;built&nbsp;from&nbsp;an&nbsp;already-masked&nbsp;volume,&nbsp;with&nbsp;no&nbsp;clip()&nbsp;at&nbsp;all.<br>
+#</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="core.eds_utils.html">core.eds_utils</a><br>
+<a href="gemmi.html">gemmi</a><br>
+<a href="hashlib.html">hashlib</a><br>
+</td><td class="multicolumn"><a href="core.http_cache.html">core.http_cache</a><br>
+<a href="json.html">json</a><br>
+<a href="logging.html">logging</a><br>
+</td><td class="multicolumn"><a href="numpy.html">numpy</a><br>
+<a href="os.html">os</a><br>
+<a href="core.pdb_redo_utils.html">core.pdb_redo_utils</a><br>
+</td><td class="multicolumn"><a href="core.pdb_utils.html">core.pdb_utils</a><br>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-get_masked_region_map"><strong>get_masked_region_map</strong></a>(
+    pdbid,
+    region,
+    box,
+    atoms,
+    radius=1.6,
+    source='pdb',
+    use_cache=True
+)</dt><dd><span class="code">Build&nbsp;(or&nbsp;reuse&nbsp;a&nbsp;cached)&nbsp;masked&nbsp;CCP4&nbsp;map&nbsp;for&nbsp;one&nbsp;density&nbsp;region.<br>
+&nbsp;<br>
+Crops&nbsp;the&nbsp;full&nbsp;source&nbsp;map&nbsp;to&nbsp;``box``&nbsp;(padded&nbsp;by&nbsp;``radius``&nbsp;+<br>
+:data:`CROP_MARGIN`)&nbsp;and&nbsp;zeroes&nbsp;every&nbsp;voxel&nbsp;further&nbsp;than&nbsp;``radius``<br>
+Angstrom&nbsp;from&nbsp;every&nbsp;atom&nbsp;in&nbsp;``atoms``,&nbsp;so&nbsp;the&nbsp;returned&nbsp;map&nbsp;already<br>
+shows&nbsp;exactly&nbsp;the&nbsp;segmented&nbsp;density&nbsp;a&nbsp;region&nbsp;should&nbsp;display&nbsp;—&nbsp;no<br>
+further&nbsp;per-atom&nbsp;clipping&nbsp;is&nbsp;needed&nbsp;client-side.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier.&nbsp;Lower-cased&nbsp;before&nbsp;use.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;region&nbsp;(str):&nbsp;One&nbsp;of&nbsp;:data:`VALID_REGIONS`<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(``"ligand"``,&nbsp;``"binding_site"``,&nbsp;``"residues_to_examine"``).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Only&nbsp;used&nbsp;to&nbsp;name&nbsp;the&nbsp;cache&nbsp;file;&nbsp;has&nbsp;no&nbsp;effect&nbsp;on&nbsp;the<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;masking&nbsp;itself&nbsp;(that's&nbsp;fully&nbsp;determined&nbsp;by&nbsp;``box``/``atoms``).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;box&nbsp;(dict):&nbsp;Padded&nbsp;bounding&nbsp;box,&nbsp;``{"min":&nbsp;[x,y,z],&nbsp;"max":&nbsp;[x,y,z]}``<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;—&nbsp;normally&nbsp;``density_boxes[region]``&nbsp;from&nbsp;the&nbsp;analysis&nbsp;result<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(see&nbsp;:func:`core.rsr_core.residues_bbox`).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;atoms&nbsp;(list):&nbsp;List&nbsp;of&nbsp;``{"residue":&nbsp;...,&nbsp;"center":&nbsp;[x,y,z]}``&nbsp;dicts<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;—&nbsp;normally&nbsp;``density_atoms[region]``&nbsp;from&nbsp;the&nbsp;analysis&nbsp;result<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(see&nbsp;:func:`core.rsr_core.residue_atom_centers`).&nbsp;Truncated&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:data:`MAX_MASK_ATOMS`&nbsp;if&nbsp;longer.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;radius&nbsp;(float,&nbsp;optional):&nbsp;Atom-mask&nbsp;radius&nbsp;in&nbsp;Angstrom,&nbsp;before<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;quantization.&nbsp;Defaults&nbsp;to&nbsp;``1.6``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;source&nbsp;(str,&nbsp;optional):&nbsp;``"pdb"``&nbsp;for&nbsp;the&nbsp;standard&nbsp;RCSB/EBI&nbsp;map,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;or&nbsp;``"pdb_redo"``&nbsp;for&nbsp;the&nbsp;PDB-REDO&nbsp;map.&nbsp;Defaults&nbsp;to&nbsp;``"pdb"``.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use_cache&nbsp;(bool,&nbsp;optional):&nbsp;Whether&nbsp;an&nbsp;existing&nbsp;cached&nbsp;masked&nbsp;map<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(or&nbsp;the&nbsp;underlying&nbsp;full&nbsp;map)&nbsp;may&nbsp;be&nbsp;reused.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``True``.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;str&nbsp;or&nbsp;None:&nbsp;Path&nbsp;to&nbsp;the&nbsp;masked&nbsp;CCP4&nbsp;map&nbsp;file,&nbsp;or&nbsp;``None``&nbsp;if&nbsp;no<br>
+&nbsp;&nbsp;&nbsp;&nbsp;map&nbsp;could&nbsp;be&nbsp;produced&nbsp;(missing&nbsp;source&nbsp;map,&nbsp;empty&nbsp;box/atoms,&nbsp;or&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;gemmi/IO&nbsp;error&nbsp;—&nbsp;all&nbsp;logged,&nbsp;never&nbsp;raised).<br>
+&nbsp;<br>
+Raises:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None</span></dd></dl>
+ <dl><dt><a name="-prefetch_default_masks"><strong>prefetch_default_masks</strong></a>(
+    pdbid,
+    density_boxes,
+    density_atoms,
+    radius=1.6,
+    source='pdb',
+    executor=None
+)</dt><dd><span class="code">Fire-and-forget&nbsp;precompute&nbsp;of&nbsp;the&nbsp;default-radius&nbsp;masked&nbsp;maps.<br>
+&nbsp;<br>
+Intended&nbsp;to&nbsp;be&nbsp;called&nbsp;right&nbsp;after&nbsp;an&nbsp;analysis&nbsp;result&nbsp;is&nbsp;built&nbsp;(see<br>
+core.rsr_core),&nbsp;while&nbsp;the&nbsp;caller&nbsp;already&nbsp;has&nbsp;``density_boxes``/<br>
+``density_atoms``&nbsp;in&nbsp;hand,&nbsp;so&nbsp;that&nbsp;by&nbsp;the&nbsp;time&nbsp;someone&nbsp;actually&nbsp;opens<br>
+the&nbsp;3D&nbsp;viewer&nbsp;for&nbsp;this&nbsp;ligand&nbsp;the&nbsp;default&nbsp;view&nbsp;needs&nbsp;no&nbsp;gemmi&nbsp;work&nbsp;—<br>
+only&nbsp;the&nbsp;on-demand&nbsp;endpoint&nbsp;has&nbsp;to&nbsp;do&nbsp;anything,&nbsp;and&nbsp;only&nbsp;for&nbsp;radii<br>
+other&nbsp;than&nbsp;the&nbsp;default.<br>
+&nbsp;<br>
+This&nbsp;intentionally&nbsp;only&nbsp;prefetches&nbsp;the&nbsp;STANDARD&nbsp;(non&nbsp;PDB-REDO)&nbsp;map<br>
+at&nbsp;the&nbsp;default&nbsp;radius:&nbsp;PDB-REDO&nbsp;maps&nbsp;come&nbsp;from&nbsp;a&nbsp;separate,&nbsp;slower<br>
+external&nbsp;map-maker&nbsp;service&nbsp;and&nbsp;aren't&nbsp;always&nbsp;available,&nbsp;so&nbsp;eagerly<br>
+fetching&nbsp;them&nbsp;for&nbsp;every&nbsp;result&nbsp;would&nbsp;slow&nbsp;down/spam&nbsp;that&nbsp;service&nbsp;for<br>
+entries&nbsp;nobody&nbsp;ends&nbsp;up&nbsp;viewing&nbsp;in&nbsp;3D.&nbsp;The&nbsp;much&nbsp;cheaper&nbsp;thing&nbsp;(an&nbsp;RCSB<br>
+map&nbsp;lookup&nbsp;that's&nbsp;already&nbsp;cached&nbsp;from&nbsp;get_edm()/edm_exists()&nbsp;calls<br>
+elsewhere&nbsp;in&nbsp;the&nbsp;analysis)&nbsp;is&nbsp;prefetched&nbsp;unconditionally.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pdbid&nbsp;(str):&nbsp;PDB&nbsp;identifier.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;density_boxes&nbsp;(dict):&nbsp;The&nbsp;``density_boxes``&nbsp;dict&nbsp;for&nbsp;one&nbsp;ligand<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;result,&nbsp;as&nbsp;built&nbsp;by&nbsp;core.rsr_core&nbsp;(keys:&nbsp;``"ligand"``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"binding_site"``,&nbsp;``"residues_to_examine"``).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;density_atoms&nbsp;(dict):&nbsp;The&nbsp;matching&nbsp;``density_atoms``&nbsp;dict.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;radius&nbsp;(float,&nbsp;optional):&nbsp;Radius&nbsp;to&nbsp;prefetch.&nbsp;Defaults&nbsp;to&nbsp;1.6,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;matching&nbsp;the&nbsp;3D&nbsp;viewer's&nbsp;default&nbsp;slider&nbsp;value&nbsp;(see<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;index.html's&nbsp;#atomRadiusSlider).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;source&nbsp;(str,&nbsp;optional):&nbsp;Defaults&nbsp;to&nbsp;``"pdb"``&nbsp;—&nbsp;see&nbsp;note&nbsp;above<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;about&nbsp;why&nbsp;PDB-REDO&nbsp;isn't&nbsp;prefetched&nbsp;here.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;executor&nbsp;(concurrent.futures.Executor,&nbsp;optional):&nbsp;Executor&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;submit&nbsp;the&nbsp;work&nbsp;to.&nbsp;If&nbsp;``None``,&nbsp;this&nbsp;runs&nbsp;synchronously<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(only&nbsp;useful&nbsp;for&nbsp;tests/CLI&nbsp;use&nbsp;—&nbsp;call&nbsp;sites&nbsp;in&nbsp;a&nbsp;Flask<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;request&nbsp;path&nbsp;should&nbsp;always&nbsp;pass&nbsp;a&nbsp;shared&nbsp;background<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;executor,&nbsp;or&nbsp;this&nbsp;will&nbsp;block&nbsp;the&nbsp;analysis&nbsp;job).<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;None.&nbsp;Errors&nbsp;are&nbsp;caught&nbsp;and&nbsp;logged&nbsp;inside&nbsp;get_masked_region_map;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;this&nbsp;function&nbsp;never&nbsp;raises&nbsp;and&nbsp;never&nbsp;blocks&nbsp;the&nbsp;caller&nbsp;when&nbsp;an<br>
+&nbsp;&nbsp;&nbsp;&nbsp;executor&nbsp;is&nbsp;given.</span></dd></dl>
+ <dl><dt><a name="-quantize_radius"><strong>quantize_radius</strong></a>(radius, step=0.25)</dt><dd><span class="code">Snap&nbsp;a&nbsp;user-supplied&nbsp;atom-mask&nbsp;radius&nbsp;to&nbsp;a&nbsp;cache-friendly&nbsp;step.<br>
+&nbsp;<br>
+Args:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;radius&nbsp;(float):&nbsp;Requested&nbsp;radius&nbsp;in&nbsp;Angstrom.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;step&nbsp;(float,&nbsp;optional):&nbsp;Quantization&nbsp;step.&nbsp;Defaults&nbsp;to<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:data:`RADIUS_STEP`.<br>
+&nbsp;<br>
+Returns:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;float:&nbsp;``radius``&nbsp;rounded&nbsp;to&nbsp;the&nbsp;nearest&nbsp;multiple&nbsp;of&nbsp;``step``,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;clamped&nbsp;to&nbsp;``[RADIUS_MIN,&nbsp;RADIUS_MAX]``.</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>CROP_MARGIN</strong> = 1.5<br>
+<strong>MAX_MASK_ATOMS</strong> = 500<br>
+<strong>RADIUS_MAX</strong> = 5.0<br>
+<strong>RADIUS_MIN</strong> = 0.25<br>
+<strong>RADIUS_STEP</strong> = 0.25<br>
+<strong>VALID_REGIONS</strong> = ('ligand', 'binding_site', 'residues_to_examine')<br>
+<strong>logger</strong> = &lt;Logger density_mask (WARNING)&gt;</td></tr></table>
+</body></html>

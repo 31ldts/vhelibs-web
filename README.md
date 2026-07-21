@@ -27,6 +27,7 @@ dependencies. `pip install`, run, and it opens in your browser.
   - [3D Viewer tab](#3d-viewer-tab)
     - [Manual quality review](#manual-quality-review)
 - [How an analysis works](#how-an-analysis-works)
+- [Electron density masking](#electron-density-masking)
 - [Classification criteria](#classification-criteria)
 - [Project structure](#project-structure)
 - [REST API](#rest-api)
@@ -67,9 +68,8 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
 - **Export results to Excel (.xlsx)** — a two-sheet workbook with the parameters a run was
   submitted with and a per-ligand results table.
 - **Integrated Mol\* 3D viewer** with independently toggleable protein/ligand/binding-site
-  layers, per-region 2Fo-Fc electron density overlay (streamed on demand and clipped to a sphere
-  around each atom rather than the whole structure), and live-adjustable contour level (isovalue)
-  and atom-mask radius.
+  layers, per-region 2Fo-Fc electron density overlay, and live-adjustable contour level
+  (isovalue) and atom-mask radius.
 - **Manual quality review** — override the computed Good/Dubious/Bad call for any ligand, binding
   site, or individual "component to examine" directly from the 3D Viewer, and write the
   correction back into the Results tab.
@@ -116,7 +116,7 @@ python run.py [--host HOST] [--port PORT] [--cache-dir PATH] [--no-browser] [--d
 ### Requirements
 
 - Python 3.8+
-- Packages: `flask`, `requests`, `gemmi` (see `requirements.txt`)
+- Packages: `flask`, `requests`, `gemmi`, `numpy` (see `requirements.txt`)
 - A browser with WebGL support (for the 3D viewer, powered by [Mol\*](https://molstar.org))
 
 ## Using the app
@@ -194,9 +194,9 @@ Renders the model with [Mol\*](https://molstar.org). You can:
 - Load any PDB ID directly (via the sidebar input), independent of a prior analysis.
 - Toggle the **protein**, **ligand**, and **binding site** representations independently.
 - Overlay the **2Fo-Fc electron density**, segmented per region (ligand / binding site / residues
-  to examine) instead of as one whole-model surface — density is streamed on demand from EBI's
-  density server as small boxes around each region, then clipped to a small sphere around every
-  atom of that region, so you only ever see density belonging to the residues you're inspecting.
+  to examine) instead of as one whole-model surface — the backend crops the source map to each
+  region and masks it around every atom of that region *before* sending it to the browser, so you only ever see density belonging
+  to the residues you're inspecting, and the viewer only has to build one isosurface per region.
 - Adjust the **contour level (isovalue, in σ)** and the **per-atom mask radius** live from the
   sidebar sliders.
 - Click through a ligand's **components to examine** in the sidebar list to focus the camera on each
@@ -280,6 +280,7 @@ vhelibs-web/
     ├── pdb_utils.py         # PDB/mmCIF download + RCSB stats, UniProt → PDB resolution
     ├── eds_utils.py         # EDS validation XML fetch + electron density map fetch
     ├── pdb_redo_utils.py    # PDB-REDO integration (structures, stats, density map)
+    ├── density_mask.py      # Server-side, per-region density masking
     └── rsr_core.py          # Analysis engine — orchestrates the above and returns JSON
 ```
 
@@ -297,6 +298,8 @@ A few notes on the core modules:
   [`gemmi`](https://gemmi.readthedocs.io)), validation-statistics lookup, and scoring together,
   and additionally computes the per-region density bounding boxes/atom centers (`density_boxes`,
   `density_atoms`) consumed by the 3D viewer.
+- **`density_mask.py`** turns those bounding boxes/atom centers into an actual pre-masked `.ccp4`
+  file per region, using `gemmi` to crop and mask the source map.
 
 ## REST API
 
@@ -432,10 +435,11 @@ Returns `400` with `{"error": "..."}` if the text is empty or no valid entries c
 }
 ```
 
-`density_boxes` gives a padded bounding box per region, used to size the on-demand download
-window from EBI's density server. `density_atoms` gives the per-atom coordinates of each region,
-used by the 3D viewer to clip displayed density to a small sphere around each atom. Both are only
-populated for X-ray entries with usable validation/density data.
+`density_boxes` gives a padded bounding box per region. `density_atoms` gives the per-atom
+coordinates of each region. The 3D viewer sends both, together with the atom-mask radius, to
+[`GET /api/density-mask/<pdbid>/<region>`](#get-apidensity-maskpdbidregion), which uses them to
+crop and mask the source map server-side. Both fields are only populated for X-ray entries with usable
+validation/density data.
 
 `uniprot` is the UniProt ID that produced this PDB entry, or `null` if it was given
 directly as a PDB ID. `other_ligands` lists residues belonging to any *other* ligand present in
@@ -461,6 +465,24 @@ doesn't support `HEAD`); the answer is cached on disk.
 ```json
 { "pdbid": "1cbs", "exists": true }
 ```
+
+### `GET /api/density-mask/<pdbid>/<region>`
+
+Returns a single pre-masked `.ccp4` density map for one region (`region` is `ligand`,
+`binding_site`, or `residues_to_examine`), cropped and masked server-side.
+
+**Query parameters:**
+
+| Param | Required | Description |
+|-------|----------|--------------|
+| `min`, `max` | Yes | Region bounding box corners, `"x,y,z"` — from `density_boxes[region]`. |
+| `atoms` | Yes | Semicolon-separated atom centers, `"x1,y1,z1;x2,y2,z2;..."` — from `density_atoms[region]`. |
+| `radius` | No (default `1.6`) | Atom-mask radius in Å; quantized to 0.25 Å steps and cached. |
+| `source` | No (default `pdb`) | `pdb` (standard RCSB/EBI map) or `pdb_redo`. |
+
+Returns the raw `.ccp4` file (`application/octet-stream`) on success, or `404` with
+`{"error": "..."}` if the region is invalid or no map could be produced (e.g. no source map
+available for this entry/source).
 
 ## Data sources
 
