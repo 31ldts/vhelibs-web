@@ -58,7 +58,13 @@ _jobs_lock = threading.Lock()
 # density-mask precompute for every ligand result as soon as a job
 # finishes (see _prefetch_density_masks below and
 # core.density_mask.prefetch_default_masks), so that by the time a user
-# opens the 3D viewer the default view is usually already cached.
+# opens the 3D viewer the default view is usually already cached. Kept
+# here (web layer) rather than inside core.rsr_core deliberately: that
+# module is exercised directly by tests/test_rsr_core.py against real
+# core.eds_utils/core.pdb_redo_utils calls, and firing background network
+# I/O from inside it would make those tests do real network calls. This
+# executor, and the whole prefetch step, is best-effort — never allowed
+# to affect the job result itself.
 _density_prefetch_executor = concurrent.futures.ThreadPoolExecutor(
     max_workers=2, thread_name_prefix="density-mask-prefetch"
 )
@@ -186,10 +192,14 @@ def _prefetch_density_masks(pdbid, result):
     for ligand in (result or {}).get("ligands") or []:
         boxes = ligand.get("density_boxes")
         atoms = ligand.get("density_atoms")
-        if boxes and atoms:
+        if not boxes or not atoms:
+            continue
+        try:
             density_mask.prefetch_default_masks(
                 pdbid, boxes, atoms, executor=_density_prefetch_executor,
             )
+        except Exception:
+            logger.exception("Density-mask prefetch failed for %s (non-fatal)", pdbid)
 
 
 def _run_job(job_id, pdbids, cfg, origin_map=None):
@@ -479,11 +489,11 @@ def density_mask_region(pdbid, region):
     """
     pdbid = pdbid.lower()
     if region not in density_mask.VALID_REGIONS:
-        abort(404, description=f"Unknown density region '{region}'")
+        return jsonify({"error": f"Unknown density region '{region}'"}), 404
 
     source = request.args.get("source", "pdb")
     if source not in ("pdb", "pdb_redo"):
-        abort(400, description=f"Unknown source '{source}'")
+        return jsonify({"error": f"Unknown source '{source}'"}), 400
 
     box = {
         "min": _parse_xyz(request.args.get("min", ""), "min"),
@@ -491,7 +501,7 @@ def density_mask_region(pdbid, region):
     }
     atoms = _parse_atom_list(request.args.get("atoms", ""))
     if not atoms:
-        abort(400, description="'atoms' must be a non-empty ';'-separated list of x,y,z triples")
+        return jsonify({"error": "'atoms' must be a non-empty ';'-separated list of x,y,z triples"}), 400
 
     radius = request.args.get("radius", 1.6)
 
@@ -499,7 +509,7 @@ def density_mask_region(pdbid, region):
         pdbid, region, box, atoms, radius=radius, source=source, use_cache=True,
     )
     if not mapfile or not os.path.isfile(mapfile):
-        abort(404, description=f"No density available for {pdbid}/{region} ({source})")
+        return jsonify({"error": f"No density available for {pdbid}/{region} ({source})"}), 404
 
     return send_file(
         mapfile,
