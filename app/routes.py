@@ -17,12 +17,19 @@ Endpoints:
                                    proxied + cached from EBI's density server.
                                    Only valid for the original PDB entry, not
                                    PDB-REDO — see /api/edm above for that case.
+  GET  /api/density-mask/<pdbid>/<region> – pre-masked CCP4 map for one region
+                                   (ligand/binding_site/residues_to_examine),
+                                   cropped + masked server-side via
+                                   core.density_mask/gemmi so the 3D viewer
+                                   renders one isosurface per region instead
+                                   of one per atom.
 """
 import os
 import re
 import threading
 import uuid
 import logging
+import concurrent.futures
 from functools import wraps
 from urllib.parse import urlencode
 
@@ -37,6 +44,7 @@ import core.eds_utils as eds_utils
 import core.pdb_redo_utils as pdb_redo_utils
 import core.cofactors as cofactors
 import core.http_cache as http_cache
+import core.density_mask as density_mask
 from core.rsr_core import AnalysisConfig, analyse_pdbids
 
 logger = logging.getLogger(__name__)
@@ -45,6 +53,15 @@ bp = Blueprint("main", __name__)
 # In-memory job store  {job_id: {"status": ..., "progress": ..., "results": ...}}
 _jobs = {}
 _jobs_lock = threading.Lock()
+
+# Shared background executor used to fire-and-forget the default-radius
+# density-mask precompute for every ligand result as soon as a job
+# finishes (see _prefetch_density_masks below and
+# core.density_mask.prefetch_default_masks), so that by the time a user
+# opens the 3D viewer the default view is usually already cached.
+_density_prefetch_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="density-mask-prefetch"
+)
 
 # Canonical UniProt ID pattern (6-char, or 10-char introduced in
 # later releases), e.g. "P00734", "A0A0A0MRZ7". Anything that doesn't match
@@ -161,6 +178,20 @@ def _expand_ids(tokens):
     return pdbids, origin_map, unresolved
 
 
+def _prefetch_density_masks(pdbid, result):
+    """Fire-and-forget precompute of the default-radius masked density
+    maps for every ligand in one analysis result (see
+    core.density_mask.prefetch_default_masks).
+    """
+    for ligand in (result or {}).get("ligands") or []:
+        boxes = ligand.get("density_boxes")
+        atoms = ligand.get("density_atoms")
+        if boxes and atoms:
+            density_mask.prefetch_default_masks(
+                pdbid, boxes, atoms, executor=_density_prefetch_executor,
+            )
+
+
 def _run_job(job_id, pdbids, cfg, origin_map=None):
     # The actual concurrent analysis (thread pool, per-entry error
     # handling, order preservation) lives in core.rsr_core.analyse_pdbids
@@ -185,6 +216,9 @@ def _run_job(job_id, pdbids, cfg, origin_map=None):
         # Tag with the UniProt ID that produced this PDB ID, if any,
         # so the frontend can group/label results accordingly.
         res["uniprot"] = origin_map.get(pdbid.strip().lower())
+        # Deliberately done here rather than inside core.rsr_core, so the
+        # analysis engine itself stays free of this web-layer side effect
+        _prefetch_density_masks(pdbid, res)
 
     with _jobs_lock:
         _jobs[job_id]["status"] = "done"
@@ -406,6 +440,74 @@ def _parse_xyz(raw, name):
     if len(parts) != 3:
         abort(400, description=f"'{name}' must be 3 comma-separated numbers, e.g. 1.0,2.0,3.0")
     return parts
+
+
+def _parse_atom_list(raw):
+    """'x1,y1,z1;x2,y2,z2;...' -> [{"center": [x,y,z]}, ...]. Aborts 400
+    on malformed input, same convention as _parse_xyz above."""
+    if not raw:
+        return []
+    atoms = []
+    for i, triplet in enumerate(raw.split(";")):
+        triplet = triplet.strip()
+        if not triplet:
+            continue
+        atoms.append({"center": _parse_xyz(triplet, f"atoms[{i}]")})
+    return atoms
+
+
+@bp.route("/api/density-mask/<pdbid>/<region>")
+@_with_cache_dir
+def density_mask_region(pdbid, region):
+    """
+    Serve a pre-masked, per-region CCP4 density map:
+    the source map is cropped to the region's padded box and every voxel
+    further than `radius` from every atom in the region is zeroed out,
+    server-side, so the 3D viewer only has to render a single isosurface
+    for this region.
+
+    Query params:
+      min=minx,miny,minz    (required) region bounding box, e.g. from
+                             a result's density_boxes[region]["min"]
+      max=maxx,maxy,maxz    (required) same, density_boxes[region]["max"]
+      atoms=x,y,z;x,y,z;... (required) atom centers, from a result's
+                             density_atoms[region]
+      radius=1.6             (optional) atom-mask radius in Å; quantized
+                             and cached server-side, see
+                             core.density_mask.quantize_radius
+      source=pdb|pdb_redo    (optional, default "pdb")
+    """
+    pdbid = pdbid.lower()
+    if region not in density_mask.VALID_REGIONS:
+        abort(404, description=f"Unknown density region '{region}'")
+
+    source = request.args.get("source", "pdb")
+    if source not in ("pdb", "pdb_redo"):
+        abort(400, description=f"Unknown source '{source}'")
+
+    box = {
+        "min": _parse_xyz(request.args.get("min", ""), "min"),
+        "max": _parse_xyz(request.args.get("max", ""), "max"),
+    }
+    atoms = _parse_atom_list(request.args.get("atoms", ""))
+    if not atoms:
+        abort(400, description="'atoms' must be a non-empty ';'-separated list of x,y,z triples")
+
+    radius = request.args.get("radius", 1.6)
+
+    mapfile = density_mask.get_masked_region_map(
+        pdbid, region, box, atoms, radius=radius, source=source, use_cache=True,
+    )
+    if not mapfile or not os.path.isfile(mapfile):
+        abort(404, description=f"No density available for {pdbid}/{region} ({source})")
+
+    return send_file(
+        mapfile,
+        mimetype="application/octet-stream",
+        as_attachment=False,
+        download_name=f"{pdbid}_{region}.ccp4",
+        conditional=True,
+    )
 
 
 @bp.route("/api/density-box/<pdbid>")

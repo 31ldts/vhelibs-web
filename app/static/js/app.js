@@ -1248,7 +1248,7 @@ let currentRteRes     = [];
 let currentDensityBoxes = null; // {ligand, binding_site, residues_to_examine} bboxes, or null if unknown
 let currentDensityAtoms = null; // {ligand, binding_site, residues_to_examine} per-atom centers, or null
 let currentSource = "PDB"; // "PDB" or "PDB_REDO" — decides where density comes from, see buildMvsData
-let currentAtomRadius = 1.6; // Å, radius of the per-atom density clip sphere (user-adjustable)
+let currentAtomRadius = 1.6; // Å, atom-mask radius sent to /api/density-mask (user-adjustable)
 let currentFocusRes = null; // residue string clicked in the "residues to examine" list, or null
 const layerState = { protein: true, ligand: true, bs: true }; // structure checkbox state
 const densityLayerState = { ligand: true, bs: true, rte: true }; // density checkbox state
@@ -1502,11 +1502,11 @@ reloadViewerBtn.addEventListener("click", () => {
 // re-refines/rebuilds the model (peptide flips, rotamer changes, moved
 // waters, etc.), and its density map (see pdbRedoMapUrl) is calculated
 // against ITS OWN "final" coordinates, not the original deposited ones.
-// The per-atom clip-sphere centers sent by the backend (density_atoms) are
+// The per-atom centers used to mask the density (density_atoms) are
 // already computed from that same PDB-REDO model (see
 // core.pdb_utils.get_pdb_file(pdbid, pdb_redo=True) on the backend), so the
 // displayed structure must match it too, or the density can end up
-// spatially outside every clip sphere with no visible error.
+// masked around positions that don't correspond to the shown atoms.
 function molstarSources(pdbidLower) {
   if (currentSource === "PDB_REDO") {
     return [
@@ -1669,122 +1669,62 @@ function buildMvsData({
   }
 
   // ── Segmented electron density ────────────────────────────────────────
-  // Each region (ligand / binding site / residues-to-examine) gets its
-  // own density query, scoped to that region's padded bounding box (see
-  // core.rsr_core.residues_bbox on the backend). This is the "masking"
-  // step from the spec: rather than loading the whole map and clipping it
-  // in the browser, we only ever ask EBI for the chunk of density that
-  // covers the region we want to show, which is both cheaper and avoids
-  // having to reimplement spatial masking client-side.
+  // Each region (ligand / binding site / residues-to-examine) is rendered
+  // from a single, already-masked density map fetched from our own
+  // backend. The backend crops the source map to the region's padded box and
+  // zeroes every voxel further than `atomRadius` Angstrom from every atom of
+  // that region, using gemmi's native set_points_around() mask primitive
   //
   // PDB-REDO ANALYSES ARE DIFFERENT: PDB-REDO re-refines the model, so its
-  // density map does not match the original entry's map served by EBI's
-  // density server — /api/density-box would silently show the wrong
-  // (original-PDB) density for a PDB-REDO result. PDB-REDO's map-maker
-  // service also has no per-region box-crop API, only a full-structure
-  // .map file, so for mapSource === "PDB_REDO" we download that single
-  // full map ONCE (via /api/edm?source=pdb_redo) and reuse it as the
-  // volume for every region below — the per-atom clip-sphere masking
-  // still works exactly the same, it's just applied to a shared volume
-  // instead of a freshly-downloaded per-region chunk.
-// Hard cap on clip representations per region — one Mol* representation
-// node is created per atom, and a very large binding site (hundreds of
-// atoms) would otherwise generate an excessive number of GPU draws. This
-// keeps things responsive while still giving true per-atom masking for
-// the vast majority of ligands/binding sites.
-const MAX_CLIP_ATOMS_PER_REGION = 300;
-
+  // density map does not match the original entry's map served by EBI —
+  // /api/density-box would silently show the wrong (original-PDB) density
+  // for a PDB-REDO result. The masking endpoint takes a `source` param for
+  // exactly this reason: `source=pdb_redo` masks PDB-REDO's own full map
+  // (see core.pdb_redo_utils.get_EDM) instead of the standard EBI one, so
+  // no separate "shared volume" plumbing is needed here any more — each
+  // region just asks for its own masked map with the right source.
   const isRedo = mapSource === "PDB_REDO";
-  // For PDB-REDO, build the shared full-map volume once, outside the
-  // per-region loop (single download regardless of how many regions/atoms
-  // are shown). Only attempted when the caller has already confirmed (via
-  // checkPdbRedoMapAvailable) that the map-maker service actually has a
-  // usable map for this entry — otherwise we skip the download node
-  // entirely rather than let Mol* fail on it mid-load.
-  const redoVolume = (isRedo && redoMapAvailable && densityBoxes && hasAnyBox(densityBoxes))
-    ? builder.download({ url: pdbRedoMapUrl(currentPdbId) }).parse({ format: "map" }).volume({})
-    : null;
 
   if (densityBoxes) {
     for (const region of DENSITY_REGIONS) {
       if (!densityLayers[region.layerKey]) continue;
+      if (isRedo && !redoMapAvailable) continue;
+
       const box = densityBoxes[region.boxKey];
       if (!box || !box.min || !box.max) continue;
 
-      let volume;
-      if (isRedo) {
-        if (!redoVolume) continue;
-        volume = redoVolume;
-      } else {
-        // The box only sizes the *download window* — the EBI density server
-        // has no per-atom masking, so the box for e.g. "binding site" also
-        // contains the ligand and unrelated solvent. To actually show density
-        // that differs per residue/atom, the same downloaded volume is
-        // rendered as one representation per atom, each clipped to a small
-        // sphere of `atomRadius` around that atom (see
-        // rsr_core.residue_atom_centers). No extra network cost: it's one
-        // download, just multiple clipped representations of it.
-        const densityUrl = densityBoxUrl(currentPdbId, box);
-        volume = builder.download({ url: densityUrl }).parse({ format: "bcif" })
-          .volume({ channel_id: "2FO-FC" });
-      }
+      const atoms = (densityAtoms && densityAtoms[region.boxKey]) || [];
+      if (!atoms.length) continue;
 
-      let atoms = (densityAtoms && densityAtoms[region.boxKey]) || [];
-      if (atoms.length > MAX_CLIP_ATOMS_PER_REGION) {
-        console.warn(`[VHELIBS] "${region.boxKey}" has ${atoms.length} atoms — capping per-atom density masking to ${MAX_CLIP_ATOMS_PER_REGION}.`);
-        atoms = atoms.slice(0, MAX_CLIP_ATOMS_PER_REGION);
-      }
+      const maskUrl = densityMaskUrl(currentPdbId, region.boxKey, atoms, box, atomRadius,
+        isRedo ? "pdb_redo" : "pdb");
+      const volume = builder.download({ url: maskUrl }).parse({ format: "map" }).volume({});
 
-      const firstRep = volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true });
-      // volume-representation .clip() requires Mol* >= 5.0 (see index.html
-      // comment). Detected once per representation rather than assumed, so
-      // an older/unexpected Mol* build degrades gracefully instead of
-      // throwing and aborting the whole structure load.
-      //
-      // IMPORTANT: a clip node's default behaviour is to cut its shape OUT
-      // of the representation (hide what's inside, keep what's outside) —
-      // like slicing through a structure to see inside it. We want the
-      // opposite: keep only what's inside each atom's sphere and hide
-      // everything else, so `invert: true` is required below, otherwise
-      // each clip just punches an invisible pinhole out of the full box
-      // and the whole box still renders.
-      const supportsClip = atoms.length > 0 && typeof firstRep.clip === "function";
-
-      if (supportsClip) {
-        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 })
-          .clip({ type: "sphere", center: atoms[0].center, radius: atomRadius, invert: true });
-        for (let i = 1; i < atoms.length; i++) {
-          volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
-            .color({ color: region.color })
-            .opacity({ opacity: 0.35 })
-            .clip({ type: "sphere", center: atoms[i].center, radius: atomRadius, invert: true });
-        }
-      } else {
-        if (atoms.length) {
-          console.warn(`[VHELIBS] This Mol* build has no volume clip() support (requires Mol* >= 5.0) — showing the unmasked region box for "${region.boxKey}" instead of per-atom density.`);
-        }
-        firstRep.color({ color: region.color }).opacity({ opacity: 0.35 });
-      }
+      volume.representation({ type: "isosurface", relative_isovalue: isovalue, show_wireframe: false, show_faces: true })
+        .color({ color: region.color })
+        .opacity({ opacity: 0.35 });
     }
   }
 
   return builder.getState();
 }
 
-// Builds the URL for a region's density chunk. Points at our own backend
-// proxy (see edm_routes.py) by default, which caches repeated queries and
-// keeps a single external-network boundary; EBI's endpoint could also be
-// called directly from the browser if the proxy isn't deployed.
-function densityBoxUrl(pdbid, box, detail = 3) {
+// Builds the URL for a region's pre-masked density map. The backend crops the
+// source map to `box` and zeroes every voxel further than `radius` Å
+// from every atom in `atoms`, so what comes back is ready to render as a
+// single isosurface.
+function densityMaskUrl(pdbid, region, atoms, box, radius, source = "pdb") {
   const min = box.min.join(",");
   const max = box.max.join(",");
-  return `/api/density-box/${pdbid.toLowerCase()}?min=${min}&max=${max}&detail=${detail}`;
+  const atomsParam = atoms.map(a => a.center.join(",")).join(";");
+  const params = new URLSearchParams({ min, max, atoms: atomsParam, radius, source });
+  return `/api/density-mask/${pdbid.toLowerCase()}/${region}?${params.toString()}`;
 }
 
 // Builds the URL for the full PDB-REDO density map (see routes.py /api/edm
-// and core.pdb_redo_utils.get_EDM). Unlike densityBoxUrl above, this is not
-// scoped to a region — PDB-REDO's map-maker has no box-crop API, so we
-// fetch the whole structure's map once and reuse it for every region.
+// and core.pdb_redo_utils.get_EDM). Used only by checkPdbRedoMapAvailable()
+// below as a cheap preflight — the actual density shown in the viewer now
+// always goes through densityMaskUrl() above, for both sources.
 function pdbRedoMapUrl(pdbid) {
   return `/api/edm/${pdbid.toLowerCase()}?source=pdb_redo`;
 }
@@ -2027,10 +1967,10 @@ isovalueSlider.addEventListener("input", function () {
   }, 150);
 });
 
-// Atom mask radius slider — controls the radius of the per-atom clip
-// sphere used to mask density (see buildMvsData). Larger radius = more of
-// the surrounding density bleeds in per atom; smaller = tighter to the
-// atom itself. Debounced the same way as the isovalue slider.
+// Atom mask radius slider — sent to, where it's quantized to a 0.25 Å step and
+// used server-side to mask the density around each atom. Larger radius =
+// more of the surrounding density is kept per atom; smaller = tighter to
+// the atom itself. Debounced the same way as the isovalue slider.
 let atomRadiusDebounce = null;
 atomRadiusSlider.addEventListener("input", function () {
   currentAtomRadius = parseFloat(this.value);
