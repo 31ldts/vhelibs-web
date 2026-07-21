@@ -27,7 +27,6 @@ dependencies. `pip install`, run, and it opens in your browser.
   - [3D Viewer tab](#3d-viewer-tab)
     - [Manual quality review](#manual-quality-review)
 - [How an analysis works](#how-an-analysis-works)
-- [Electron density masking](#electron-density-masking)
 - [Classification criteria](#classification-criteria)
 - [Project structure](#project-structure)
 - [REST API](#rest-api)
@@ -71,8 +70,8 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
   layers, per-region 2Fo-Fc electron density overlay, and live-adjustable contour level
   (isovalue) and atom-mask radius.
 - **Manual quality review** — override the computed Good/Dubious/Bad call for any ligand, binding
-  site, or individual "component to examine" directly from the 3D Viewer, and write the
-  correction back into the Results tab.
+  site, or individual "component to examine" directly from the 3D Viewer (see
+  [Manual quality review](#manual-quality-review)).
 - **Disk caching** of every downloaded structure/statistics file, so re-running an analysis (or
   re-opening the 3D viewer) doesn't re-hit external APIs.
 
@@ -102,7 +101,7 @@ Then open <http://localhost:8000> in your browser.
 ### Command-line options
 
 ```
-python run.py [--host HOST] [--port PORT] [--cache-dir PATH] [--no-browser] [--debug]
+python run.py [--host HOST] [--port PORT] [--cache-dir PATH] [--no-browser] [--browser NAME] [--debug]
 ```
 
 | Flag | Default | Description |
@@ -111,6 +110,7 @@ python run.py [--host HOST] [--port PORT] [--cache-dir PATH] [--no-browser] [--d
 | `--port` | `8000` | TCP port |
 | `--cache-dir` | `~/.cache/vhelibs` | Directory for downloaded PDB/EDS files |
 | `--no-browser` | off | Suppress automatic browser launch |
+| `--browser` | system default | Browser to launch (e.g. `firefox`, `google-chrome`, `chromium`, `safari`, `windows-default`). Falls back to the system default if the name isn't recognized — see Python's [`webbrowser`](https://docs.python.org/3/library/webbrowser.html#webbrowser.get) docs for the names registered on your platform |
 | `--debug` | off | Enable Flask debug/reloader (dev only) |
 
 ### Requirements
@@ -154,8 +154,8 @@ normally excludes from scoring rather than treating as ligands. You can:
   headers. The app shows a preview of how many entries it parsed before you commit; applying it
   **replaces** the built-in defaults entirely rather than adding to them.
 
-None of this modifies VHELIBS' shared built-in tables — it's scoped to the browser session and
-sent along with the next **Analyse** request only.
+These changes are scoped to your browser session and sent along with the next **Analyse**
+request only — see [`blacklist`](#post-apianalyse) below for exactly what gets sent.
 
 ### Results tab
 
@@ -218,8 +218,8 @@ viewer:
 - **Confirm changes** writes your edits back into the Results tab — the ligand/binding-site
   badges update immediately, and the entry is flagged **✎ edited**.
 
-These overrides live only in the current browser session. They are not sent to the server or
-saved to disk, so reloading the page or re-running the analysis discards them.
+These overrides live only in the current browser session: reloading the page or re-running the
+analysis discards them (they're never sent back to the server or saved to disk).
 
 ## How an analysis works
 
@@ -343,8 +343,7 @@ polymer entities reference it; unresolvable accessions are omitted and reported 
 stop treating as blacklisted for this run, `custom` adds extra `{code, name, category}` entries,
 and `replace` — when non-null — substitutes the built-in metal/blacklist tables entirely with the
 `{"metals": {...}, "ligand_blacklist": {...}}` shape returned by
-[`POST /api/blacklist/parse`](#post-apiblacklistparse). This customization is per-request only —
-it never modifies VHELIBS' shared defaults.
+[`POST /api/blacklist/parse`](#post-apiblacklistparse).
 
 **Response:**
 
@@ -450,10 +449,8 @@ never leaks another ligand into the current scene).
 `residue_qualities` maps every entry in `residues_to_examine` to the classification it was
 computed with (`"Dubious"` or `"Bad"` — by construction, a component never ends up in
 `residues_to_examine` if it's `"Good"`). This is what pre-selects the right button for each
-component in the 3D Viewer's [manual quality review](#manual-quality-review) panel. Overrides made
-there are a browser-only annotation layer. They update the in-memory results the Results tab
-renders from, but are never sent back to this API or persisted to disk — re-running the analysis
-or reloading the page discards them.
+component in the 3D Viewer's [manual quality review](#manual-quality-review) panel; overrides made
+there are a browser-only annotation layer and are never sent back to this API.
 
 ### `GET /api/edm-exists/<pdbid>`
 

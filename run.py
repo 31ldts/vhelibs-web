@@ -26,6 +26,13 @@ def main():
                         "(default: ~/.cache/vhelibs)")
     p.add_argument("--no-browser", action="store_true",
                    help="Do not open browser automatically")
+    p.add_argument("--browser",   default=None,
+                   help="Name of the browser to use to open the app "
+                        "(e.g. firefox, google-chrome, chromium, safari, "
+                        "opera, windows-default, macosx). If omitted, the "
+                        "system default browser is used. See the Python "
+                        "'webbrowser' module docs for the list of names "
+                        "recognized.")
     p.add_argument("--debug", action="store_true",
                    help="Enable Flask debug mode (do NOT use in production)")
     args = p.parse_args()
@@ -40,8 +47,22 @@ def main():
 
     url = f"http://{args.host}:{args.port}"
     if not args.no_browser and not args.debug:
+        def _open_browser():
+            if args.browser:
+                try:
+                    controller = webbrowser.get(args.browser)
+                    controller.open(url)
+                    return
+                except webbrowser.Error:
+                    print(
+                        f"Warning: browser '{args.browser}' not found or not "
+                        "supported on this system. Falling back to the "
+                        "default browser."
+                    )
+            webbrowser.open(url)
+
         # Open browser after a short delay so Flask has time to start
-        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+        threading.Timer(1.2, _open_browser).start()
 
     print(f"VHELIBS Web server starting at {url}")
     print(f"Cache directory: {cache_dir}")
