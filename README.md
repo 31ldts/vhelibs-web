@@ -294,6 +294,8 @@ A few notes on the core modules:
   and is used across `rsr_core`, `eds_utils`, and `pdb_redo_utils` — they must agree byte-for-byte
   since these keys are cross-referenced by plain string equality between parsed atoms and
   validation statistics.
+- **`pdb_redo_utils.py`**'s `get_EDM()` fetches PDB-REDO's final density map from PDB-REDO's
+  [map-maker service](https://pdb-redo.eu/map-maker/map?id=1cbs&stage=final&type=density).
 - **`rsr_core.py`** is the analysis engine: it ties structure parsing (via
   [`gemmi`](https://gemmi.readthedocs.io)), validation-statistics lookup, and scoring together,
   and additionally computes the per-region density bounding boxes/atom centers (`density_boxes`,

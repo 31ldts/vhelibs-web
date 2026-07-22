@@ -11,18 +11,10 @@
 <td class="extra"><a href=".">index</a><br><a href="file:c%3A%5Cusers%5Cuser%5Cdesktop%5Cbio-urv%5Cvhelibs-web%5Cvhelibs-web%5Ccore%5Cdensity_mask.py">c:\users\user\desktop\bio-urv\vhelibs-web\vhelibs-web\core\density_mask.py</a></td></tr></table>
     <p><span class="code">#&nbsp;-*-&nbsp;coding:&nbsp;utf-8&nbsp;-*-<br>
 #<br>
-#&nbsp;&nbsp;&nbsp;New&nbsp;module,&nbsp;added&nbsp;to&nbsp;move&nbsp;per-atom&nbsp;electron-density&nbsp;masking&nbsp;from&nbsp;the<br>
-#&nbsp;&nbsp;&nbsp;browser&nbsp;(Mol*&nbsp;volume-representation&nbsp;.clip(),&nbsp;one&nbsp;isosurface&nbsp;per&nbsp;atom<br>
-#&nbsp;&nbsp;&nbsp;—&nbsp;see&nbsp;the&nbsp;old&nbsp;buildMvsData()&nbsp;in&nbsp;app.js)&nbsp;to&nbsp;the&nbsp;server,&nbsp;where&nbsp;it&nbsp;can<br>
-#&nbsp;&nbsp;&nbsp;be&nbsp;computed&nbsp;once&nbsp;with&nbsp;gemmi&nbsp;and&nbsp;cached&nbsp;to&nbsp;disk&nbsp;like&nbsp;every&nbsp;other<br>
-#&nbsp;&nbsp;&nbsp;downloaded/derived&nbsp;file&nbsp;(see&nbsp;core.eds_utils.get_edm/get_EDS).<br>
-#<br>
-#&nbsp;&nbsp;&nbsp;For&nbsp;a&nbsp;given&nbsp;(pdbid,&nbsp;region,&nbsp;radius,&nbsp;source),&nbsp;do&nbsp;the&nbsp;masking<br>
-#&nbsp;&nbsp;&nbsp;once&nbsp;here&nbsp;—&nbsp;crop&nbsp;the&nbsp;source&nbsp;CCP4&nbsp;map&nbsp;to&nbsp;the&nbsp;region's&nbsp;padded&nbsp;box&nbsp;and<br>
-#&nbsp;&nbsp;&nbsp;zero&nbsp;out&nbsp;every&nbsp;voxel&nbsp;further&nbsp;than&nbsp;`radius`&nbsp;Å&nbsp;from&nbsp;every&nbsp;atom&nbsp;in&nbsp;that<br>
-#&nbsp;&nbsp;&nbsp;region&nbsp;—&nbsp;and&nbsp;write&nbsp;the&nbsp;result&nbsp;out&nbsp;as&nbsp;its&nbsp;own&nbsp;small&nbsp;.ccp4&nbsp;file.&nbsp;The<br>
-#&nbsp;&nbsp;&nbsp;client&nbsp;then&nbsp;needs&nbsp;exactly&nbsp;ONE&nbsp;isosurface&nbsp;representation&nbsp;per&nbsp;region,<br>
-#&nbsp;&nbsp;&nbsp;built&nbsp;from&nbsp;an&nbsp;already-masked&nbsp;volume,&nbsp;with&nbsp;no&nbsp;clip()&nbsp;at&nbsp;all.<br>
+#&nbsp;Computes&nbsp;per-region&nbsp;electron&nbsp;density&nbsp;masks&nbsp;for&nbsp;protein&nbsp;structures.<br>
+#&nbsp;Crops&nbsp;a&nbsp;CCP4&nbsp;map&nbsp;to&nbsp;a&nbsp;given&nbsp;region&nbsp;and&nbsp;zeroes&nbsp;voxels&nbsp;beyond&nbsp;a&nbsp;specified<br>
+#&nbsp;radius&nbsp;from&nbsp;each&nbsp;atom&nbsp;in&nbsp;that&nbsp;region.&nbsp;Outputs&nbsp;masked&nbsp;maps&nbsp;as&nbsp;.ccp4&nbsp;files<br>
+#&nbsp;for&nbsp;server-side&nbsp;caching&nbsp;and&nbsp;client-side&nbsp;single-isosurface&nbsp;rendering.<br>
 #</span></p>
 <p>
 <table class="section">
