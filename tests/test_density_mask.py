@@ -228,7 +228,23 @@ class TestGetMaskedRegionMapMasking:
             "1cbs", "ligand", box, atoms, radius=1.6, source="pdb_redo")
 
         assert out is not None and os.path.isfile(out)
-        mock_get_edm.assert_called_once_with("1cbs")
+        mock_get_edm.assert_called_once_with("1cbs", use_cache=True)
+
+    @patch("core.pdb_redo_utils.get_EDM")
+    def test_pdb_redo_map_is_cached_after_first_download(
+            self, mock_get_edm, synthetic_map, region_box_atoms):
+        mock_get_edm.return_value = synthetic_map
+        box, atoms = region_box_atoms
+
+        density_mask.get_masked_region_map(
+            "1cbs", "ligand", box, atoms, radius=1.6, source="pdb_redo")
+        density_mask.get_masked_region_map(
+            "1cbs", "ligand", box, atoms, radius=1.6, source="pdb_redo")
+
+        # The masked-region cache alone already prevents a 2nd call for
+        # identical box/atoms/radius — get_EDM's own on-disk cache is
+        # exercised directly in tests/test_pdb_redo_utils.py.
+        mock_get_edm.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

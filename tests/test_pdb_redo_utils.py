@@ -253,12 +253,19 @@ class TestGetPdbredoData:
 # ---------------------------------------------------------------------------
 
 class TestGetEDM:
+    """get_EDM() fetches PDB-REDO's *density map* — not to be confused
+    with the *_final.json/data.json fetched by get_ED_data/get_pdbredo_data
+    above. It used to (incorrectly) download *_final.mtz, the reflection-
+    data file, which no CCP4-map reader can parse as a density grid — see
+    the module-level note above PDB_REDO_MAP_MAKER_URL.
+    """
+
     def test_returns_cached_file_path_without_downloading(self, tmp_path):
         cache_dir = os.path.join(str(tmp_path), "1cbs")
         os.makedirs(cache_dir, exist_ok=True)
-        cached = os.path.join(cache_dir, "1cbs_final.mtz")
+        cached = os.path.join(cache_dir, "1cbs_final.map")
         with open(cached, "wb") as fh:
-            fh.write(b"mtzdata")
+            fh.write(b"mapdata")
 
         with patch("core.http_cache.requests.get") as mock_get:
             result = pdb_redo_utils.get_EDM("1cbs")
@@ -268,18 +275,57 @@ class TestGetEDM:
     @patch("core.http_cache.requests.get")
     def test_downloads_when_not_cached(self, mock_get, tmp_path):
         resp = MagicMock()
-        resp.content = b"mtzdata"
+        resp.content = b"mapdata"
         resp.raise_for_status = MagicMock()
         mock_get.return_value = resp
 
         result = pdb_redo_utils.get_EDM("1cbs")
 
-        assert result.endswith("1cbs_final.mtz")
+        assert result.endswith("1cbs_final.map")
         called_url = mock_get.call_args[0][0]
-        assert called_url == "https://pdb-redo.eu/db/1cbs/1cbs_final.mtz"
+        assert called_url == "https://pdb-redo.eu/map-maker/map?id=1cbs&stage=final&type=density"
+
+    @patch("core.http_cache.requests.get")
+    def test_pdbid_is_lowercased_in_the_url(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.content = b"mapdata"
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
+
+        pdb_redo_utils.get_EDM("1CBS")
+
+        called_url = mock_get.call_args[0][0]
+        assert "id=1cbs" in called_url
 
     @patch("core.http_cache.requests.get")
     def test_returns_none_on_failure(self, mock_get):
         mock_get.side_effect = requests.exceptions.ConnectionError("down")
         result = pdb_redo_utils.get_EDM("1cbs")
         assert result is None
+
+    @patch("core.http_cache.requests.get")
+    def test_use_cache_false_forces_redownload(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.content = b"mapdata"
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
+
+        pdb_redo_utils.get_EDM("1cbs", use_cache=True)
+        pdb_redo_utils.get_EDM("1cbs", use_cache=False)
+
+        assert mock_get.call_count == 2
+
+    @patch("core.http_cache.requests.get")
+    def test_uses_the_longer_map_download_timeout(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.content = b"mapdata"
+        resp.raise_for_status = MagicMock()
+        mock_get.return_value = resp
+
+        pdb_redo_utils.get_EDM("1cbs")
+
+        assert mock_get.call_args.kwargs["timeout"] == pdb_redo_utils._MAP_DOWNLOAD_TIMEOUT
+        assert pdb_redo_utils._MAP_DOWNLOAD_TIMEOUT == 120
+        # The map-maker computes the map on request, so it gets a longer
+        # timeout than the other (static-file) PDB-REDO downloads.
+        assert pdb_redo_utils._MAP_DOWNLOAD_TIMEOUT > pdb_redo_utils._DOWNLOAD_TIMEOUT
