@@ -1,13 +1,7 @@
 # -*- coding: utf-8 -*-
 #
-#   Copyright 2013-2024 Adrià Cereto Massagué
-#   Migrated to web version.
-#   Changes: replaced urllib with requests; removed Java/Jython locale hacks;
-#            removed CSV-based legacy fallback; no Cython deps.
-#   Refactor: download/cache-on-disk logic now delegates to core.http_cache
-#   (was duplicated near-verbatim across this module, pdb_utils.py and
-#   eds_utils.py); split JSON parsing in get_ED_data and get_pdbredo_data
-#   into private helpers.
+# Electron density map retrieval for PDB and PDB-REDO structures.
+# Handles HTTP requests, JSON parsing, and local disk caching.
 #
 import os
 import logging
@@ -19,12 +13,15 @@ from core.pdb_atom import format_reskey
 logger = logging.getLogger(__name__)
 
 PDB_REDO_ED_DATA_URL = "https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.json"
-PDB_REDO_EDM_URL = "https://pdb-redo.eu/db/{pdbid}/{pdbid}_final.mtz"
 ALLDATA_URL = "https://pdb-redo.eu/db/{pdbid}/data.json"
+PDB_REDO_MAP_MAKER_URL = "https://pdb-redo.eu/map-maker/map?id={pdbid}&stage=final&type=density"
 
 # Timeouts here are intentionally longer than pdb_utils'/eds_utils' defaults:
 # PDB-REDO's server has historically been slower to respond than RCSB/EBI.
 _DOWNLOAD_TIMEOUT = 60
+# The map-maker service computes the map on request rather than serving a
+# static file, so it gets its own, longer timeout.
+_MAP_DOWNLOAD_TIMEOUT = 120
 
 
 def _parse_ed_data(ed_data):
@@ -183,22 +180,23 @@ def get_pdbredo_data(pdbid, use_cache=True):
 
 
 def get_EDM(pdbid, use_cache=True):
-    """Download (and cache) the PDB-REDO MTZ electron density map file.
+    """Download (and cache) PDB-REDO's final electron density map (CCP4/.map).
 
-    If a valid cached copy of the MTZ file already exists locally and
-    ``use_cache`` is ``True``, the download is skipped and the cached path
-    is returned directly.
+    Fetches the map from PDB-REDO's map-maker service, which computes it on request rather than
+    serving a static file. If a valid cached copy already exists locally
+    and ``use_cache`` is ``True``, the download is skipped and the cached
+    path is returned directly.
 
     Args:
         pdbid (str): PDB identifier of the structure to fetch. It is
             lower-cased before use.
         use_cache (bool, optional): Whether an existing cached copy of the
-            MTZ file may be reused instead of re-downloading it. Defaults
+            map file may be reused instead of re-downloading it. Defaults
             to ``True``.
 
     Returns:
         str or None: Local filesystem path to the downloaded (or cached)
-        MTZ file, or ``None`` if the download failed.
+        ``.map`` file, or ``None`` if the download failed.
 
     Raises:
         None: Download errors are caught internally (via
@@ -208,10 +206,10 @@ def get_EDM(pdbid, use_cache=True):
     """
     pdbid = pdbid.lower()
     downloaddir = http_cache.entry_cache_dir(pdb_utils.CACHEDIR, pdbid)
-    url = PDB_REDO_EDM_URL.format(pdbid=pdbid)
-    filename = os.path.join(downloaddir, f"{pdbid}_final.mtz")
+    url = PDB_REDO_MAP_MAKER_URL.format(pdbid=pdbid)
+    filename = os.path.join(downloaddir, f"{pdbid}_final.map")
 
-    if http_cache.download_if_missing(url, filename, timeout=_DOWNLOAD_TIMEOUT, use_cache=use_cache):
+    if http_cache.download_if_missing(url, filename, timeout=_MAP_DOWNLOAD_TIMEOUT, use_cache=use_cache):
         return filename
 
     logger.error("Could not download %s", url)

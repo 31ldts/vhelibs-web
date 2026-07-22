@@ -1,17 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-#   New module, added to move per-atom electron-density masking from the
-#   browser (Mol* volume-representation .clip(), one isosurface per atom
-#   — see the old buildMvsData() in app.js) to the server, where it can
-#   be computed once with gemmi and cached to disk like every other
-#   downloaded/derived file (see core.eds_utils.get_edm/get_EDS).
-#
-#   For a given (pdbid, region, radius, source), do the masking
-#   once here — crop the source CCP4 map to the region's padded box and
-#   zero out every voxel further than `radius` Å from every atom in that
-#   region — and write the result out as its own small .ccp4 file. The
-#   client then needs exactly ONE isosurface representation per region,
-#   built from an already-masked volume, with no clip() at all.
+# Computes per-region electron density masks for protein structures.
+# Crops a CCP4 map to a given region and zeroes voxels beyond a specified
+# radius from each atom in that region. Outputs masked maps as .ccp4 files
+# for server-side caching and client-side single-isosurface rendering.
 #
 import os
 import json
@@ -23,18 +15,10 @@ import gemmi
 
 import core.pdb_utils as pdb_utils
 import core.eds_utils as eds_utils
+import core.pdb_redo_utils as pdb_redo_utils
 import core.http_cache as http_cache
 
 logger = logging.getLogger(__name__)
-
-# NOTE: this assumes core.pdb_redo_utils exposes a get_EDM(pdbid,
-# use_cache=True) -> (filepath_or_None, sigma_or_None) function returning
-# the full PDB-REDO CCP4 map, mirroring core.eds_utils.get_edm — that's
-# what app.js's pdbRedoMapUrl()/checkPdbRedoMapAvailable() imply on the
-# existing /api/edm?source=pdb_redo route. Written without sight of
-# pdb_redo_utils.py itself, so please confirm the signature matches
-# before wiring in the "source=pdb_redo" path below.
-import core.pdb_redo_utils as pdb_redo_utils
 
 # Quantization step (Angstrom) for the atom-mask radius. The 3D viewer's
 # slider is continuous (0.1 Å steps), but caching a masked map for every
@@ -110,12 +94,8 @@ def _full_map_path(pdbid, source, use_cache=True):
     """
     if source == "pdb_redo":
         # core.pdb_redo_utils.get_EDM returns the map path directly, NOT
-        # a (path, sigma) tuple like eds_utils.get_edm below — confirmed
-        # from its real call site in app/routes.py's /api/edm route:
-        #   mapfile = pdb_redo_utils.get_EDM(pdbid)
-        # It also isn't called with a use_cache kwarg there, so we don't
-        # assume it accepts one either.
-        return pdb_redo_utils.get_EDM(pdbid)
+        # a (path, sigma) tuple like eds_utils.get_edm below.
+        return pdb_redo_utils.get_EDM(pdbid, use_cache=use_cache)
     path, _sigma = eds_utils.get_edm(pdbid, use_cache=use_cache)
     return path
 
