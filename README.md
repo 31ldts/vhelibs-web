@@ -30,6 +30,7 @@ dependencies. `pip install`, run, and it opens in your browser.
 - [Classification criteria](#classification-criteria)
 - [Project structure](#project-structure)
 - [REST API](#rest-api)
+- [Scripting the API / example script](#scripting-the-api--example-script)
 - [Data sources](#data-sources)
 - [Migration notes](#migration-notes-vs-the-original-vhelibs)
 - [Citation](#citation)
@@ -74,6 +75,10 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
   correction back into the Results tab.
 - **Disk caching** of every downloaded structure/statistics file, so re-running an analysis (or
   re-opening the 3D viewer) doesn't re-hit external APIs.
+- **Scriptable REST API** — every action the web UI performs is a plain HTTP call (see
+  [REST API](#rest-api)), so batch runs can be driven headlessly without a browser; see
+  [Scripting the API / example script](#scripting-the-api--example-script) for a ready-to-run
+  example.
 
 ## Quick start
 
@@ -513,6 +518,39 @@ Returns a single pre-masked `.ccp4` density map for one region (`region` is `lig
 Returns the raw `.ccp4` file (`application/octet-stream`) on success, or `404` with
 `{"error": "..."}` if the region is invalid or no map could be produced (e.g. no source map
 available for this entry/source).
+
+## Scripting the API / example script
+
+Everything the web UI does goes through the plain HTTP endpoints documented above — you don't
+need a browser to run analyses. The basic flow to script is: `POST /api/analyse` to start a job,
+then poll `GET /api/status/<job_id>` until `status` is `"done"` and read `results` from there. This makes it straightforward to run VHELIBS Web
+headlessly on a server — e.g. as part of a batch pipeline that screens many structures overnight
+and exports the results without anyone opening a browser.
+
+`examples/vhelibs_batch_client.py` is a self-contained example of exactly that. It:
+
+1. Starts the Flask server itself (`run.py`) as a subprocess and waits until it responds.
+2. Submits the given PDB/UniProt IDs to `/api/analyse` in small batches rather than all at once,
+   polling `/api/status/<job_id>` for each batch until it's done.
+3. Flattens each batch's results into spreadsheet rows as soon as they arrive — discarding the raw
+   analysis JSON (atom coordinates, density boxes, per-residue quality maps, …) for that batch
+   right away — and, once every batch is processed, writes a two-sheet `.xlsx` (`Ligands` +
+   `Parameters`) in the same layout the Results tab's own
+   [Export (.xlsx)](#exporting-results) button produces.
+
+```bash
+pip install requests openpyxl
+python examples/vhelibs_batch_client.py \
+    --repo-root /path/to/vhelibs-web \
+    --pdbids 1cbs 3dzu 4hhb P00734 \
+    --batch-size 5 \
+    --output results.xlsx
+```
+
+`--repo-root` is the directory containing `run.py`; the script launches and stops the server for
+you, so it doesn't need to be running beforehand. Run
+`python examples/vhelibs_batch_client.py --help` for the full list of options, including the
+quality thresholds, `--use-pdb-redo`, and the polling interval.
 
 ## Data sources
 
