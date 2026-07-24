@@ -23,9 +23,15 @@ Endpoints:
                                    core.density_mask/gemmi so the 3D viewer
                                    renders one isosurface per region instead
                                    of one per atom.
+  POST /api/cache/clear         – delete every file under the on-disk cache
+                                   (structures, validation stats, density
+                                   maps, masked-map cache, UniProt lookups).
+                                   Nothing in the cache is ever removed
+                                   automatically otherwise.
 """
 import os
 import re
+import shutil
 import threading
 import uuid
 import logging
@@ -374,6 +380,74 @@ def status(job_id):
         "progress": job["progress"],
         "total": job["total"],
         "results": job["results"],
+    })
+
+
+def _dir_size_and_count(path):
+    """Total size (bytes) and file count of everything under `path`."""
+    total_size = 0
+    total_files = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            fp = os.path.join(root, name)
+            try:
+                total_size += os.path.getsize(fp)
+                total_files += 1
+            except OSError:
+                pass
+    return total_size, total_files
+
+
+@bp.route("/api/cache/clear", methods=["POST"])
+@_with_cache_dir
+def clear_cache():
+    """
+    Delete everything under the server's on-disk cache: downloaded mmCIF
+    structures, validation stats, electron-density maps, masked-map
+    cache, UniProt lookups, etc. — every file ever written via
+    core.http_cache or core.density_mask into CACHEDIR.
+
+    Nothing in the cache is ever removed automatically, so this is the
+    only way to reclaim that disk space.
+
+    Individual entries that fail to delete (e.g. a permissions error, or
+    a file locked by another process) are skipped and reported in
+    ``errors`` rather than aborting the whole cleanup.
+    """
+    cache_dir = current_app.config["CACHE_DIR"]
+    removed_files = 0
+    freed_bytes = 0
+    errors = []
+
+    if os.path.isdir(cache_dir):
+        for entry in os.listdir(cache_dir):
+            path = os.path.join(cache_dir, entry)
+            try:
+                if os.path.isdir(path) and not os.path.islink(path):
+                    size, count = _dir_size_and_count(path)
+                    shutil.rmtree(path)
+                    freed_bytes += size
+                    removed_files += count
+                else:
+                    freed_bytes += os.path.getsize(path)
+                    os.remove(path)
+                    removed_files += 1
+            except OSError as exc:
+                logger.warning("Could not remove cache entry %s: %s", path, exc)
+                errors.append(entry)
+
+    # Recreate an empty cache dir so subsequent requests don't have to
+    # special-case a missing directory.
+    os.makedirs(cache_dir, exist_ok=True)
+
+    logger.info(
+        "Cache cleared: %d file(s), %d bytes freed from %s (%d error(s))",
+        removed_files, freed_bytes, cache_dir, len(errors),
+    )
+    return jsonify({
+        "removed_files": removed_files,
+        "freed_bytes": freed_bytes,
+        "errors": errors,
     })
 
 

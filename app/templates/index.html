@@ -61,6 +61,13 @@
             </label>
             <button id="analyseBtn" class="btn btn-primary">Analyse</button>
           </div>
+          <div class="input-row">
+            <button type="button" id="clearCacheBtn" class="btn btn-secondary"
+              title="Permanently delete every downloaded structure/validation/density-map file cached on the server's disk. Nothing in the cache is ever removed automatically, so this is the only way to reclaim that space or force a fully fresh re-download.">
+              Clear disk cache
+            </button>
+            <span id="clearCacheStatus" class="th-hint"></span>
+          </div>
         </div>
 
         <!-- Thresholds card -->
@@ -371,6 +378,15 @@
           metal/blacklist tables rather than being scored as ligands. Remaining ligands are grouped
           into complexes (covalently linked HETATM groups count as one ligand), and every residue
           within the binding-site distance cutoff is collected as that ligand's binding site.
+        </p>
+
+        <h3>Disk cache</h3>
+        <p>
+          Every structure, validation report, and density map VHELIBS downloads is cached on the
+          server's disk, so re-running an analysis (or re-opening the 3D viewer) reuses it instead
+          of re-hitting RCSB/PDBe/PDB-REDO. Nothing is ever removed from that cache automatically —
+          use the <strong>Clear disk cache</strong> button on the Analysis tab if you want to
+          reclaim that space.
         </p>
 
         <h3>Editing the ligand blacklist</h3>

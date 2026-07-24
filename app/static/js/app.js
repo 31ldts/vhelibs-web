@@ -90,6 +90,50 @@ pdbInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.ctrlKey) startAnalysis();
 });
 
+// ── Clear disk cache ──────────────────────────────────────
+// Nothing under the server's on-disk cache (structures, validation stats,
+// density maps, masked-map cache, UniProt lookups) is ever removed
+// automatically so this is the only way to reclaim that space from the UI.
+
+const clearCacheBtn    = document.getElementById("clearCacheBtn");
+const clearCacheStatus = document.getElementById("clearCacheStatus");
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exp = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / Math.pow(1024, exp)).toFixed(exp ? 1 : 0)} ${units[exp]}`;
+}
+
+async function clearCache() {
+  if (!confirm(
+    "Delete every cached structure, validation report, and density map from the server's disk?\n\n" +
+    "This can't be undone — the next analysis or 3D view for any entry will have to re-download it."
+  )) {
+    return;
+  }
+
+  clearCacheBtn.disabled = true;
+  clearCacheStatus.textContent = "Clearing cache…";
+
+  try {
+    const resp = await fetch("/api/cache/clear", { method: "POST" });
+    if (!resp.ok) throw new Error(`Server responded ${resp.status}`);
+    const data = await resp.json();
+
+    clearCacheStatus.textContent =
+      `Removed ${data.removed_files} file(s), freed ${formatBytes(data.freed_bytes)}` +
+      (data.errors && data.errors.length ? ` (${data.errors.length} entr${data.errors.length === 1 ? "y" : "ies"} could not be removed)` : ".");
+  } catch (err) {
+    console.error("[VHELIBS] Clear cache failed:", err);
+    clearCacheStatus.textContent = "Could not clear the cache: " + err.message;
+  } finally {
+    clearCacheBtn.disabled = false;
+  }
+}
+
+clearCacheBtn.addEventListener("click", clearCache);
+
 // ── Load PDB IDs from a file ──────────────────────────────
 // Accepts plain text/CSV/TSV files: any mix of commas, whitespace or
 // newlines works, same as manual textarea input, since it's just merged
