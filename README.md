@@ -70,8 +70,8 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
   layers, per-region 2Fo-Fc electron density overlay, and live-adjustable contour level
   (isovalue) and atom-mask radius.
 - **Manual quality review** — override the computed Good/Dubious/Bad call for any ligand, binding
-  site, or individual "component to examine" directly from the 3D Viewer (see
-  [Manual quality review](#manual-quality-review)).
+  site, or individual "component to examine" directly from the 3D Viewer, and write the
+  correction back into the Results tab.
 - **Disk caching** of every downloaded structure/statistics file, so re-running an analysis (or
   re-opening the 3D viewer) doesn't re-hit external APIs.
 
@@ -154,8 +154,8 @@ normally excludes from scoring rather than treating as ligands. You can:
   headers. The app shows a preview of how many entries it parsed before you commit; applying it
   **replaces** the built-in defaults entirely rather than adding to them.
 
-These changes are scoped to your browser session and sent along with the next **Analyse**
-request only — see [`blacklist`](#post-apianalyse) below for exactly what gets sent.
+None of this modifies VHELIBS' shared built-in tables — it's scoped to the browser session and
+sent along with the next **Analyse** request only.
 
 ### Results tab
 
@@ -218,8 +218,8 @@ viewer:
 - **Confirm changes** writes your edits back into the Results tab — the ligand/binding-site
   badges update immediately, and the entry is flagged **✎ edited**.
 
-These overrides live only in the current browser session: reloading the page or re-running the
-analysis discards them (they're never sent back to the server or saved to disk).
+These overrides live only in the current browser session. They are not sent to the server or
+saved to disk, so reloading the page or re-running the analysis discards them.
 
 ## How an analysis works
 
@@ -246,8 +246,34 @@ fails adds one "fail point":
 A residue's total score maps to a bucket: `0` → **Good**, `1..tolerance` → **Dubious**,
 `> tolerance` → **Bad** (`tolerance` defaults to 2). A ligand or binding site then takes the worst
 classification of its own residues (any Bad → Bad; else any Dubious → Dubious; else Good).
-Residues with missing validation data are excluded from scoring and reported under `rejected`
-instead.
+
+**Missing validation data.** A residue with no electron-density validation stats (RSR/RSCC) at all
+gets a severe automatic penalty, which almost always
+means "Bad" — but this only means *no data was available to judge it*, not necessarily a genuine
+density-fit problem. Ligand and binding-site residues are affected differently:
+
+- **Ligand** residues missing data are pruned out of the ligand entirely and reported under
+  `rejected` instead — they don't force the *remaining* ligand residues to "Bad" by themselves,
+  but if a whole (single-residue) ligand has no data it disappears from the results list
+  altogether rather than showing up as "Bad".
+- **Binding site** residues missing data are *not* pruned, so a single such residue among many is
+  enough to mark the entire binding site "Bad".
+
+Each ligand result carries `ligand_density_data_available`/`binding_site_density_data_available`
+booleans so this distinction is visible instead of
+being silently folded into an opaque "Bad" — the Results tab shows a ⚠ next to the Ligand/BS
+quality badge whenever that data was missing, and its **Not found RSR/RSCC** toggle filters on it.
+
+This is a distinct concept from whether the electron-density **map** itself (the file the 3D
+viewer renders, as opposed to the RSR/RSCC stats above) could be found — a structure can have one
+without the other.
+
+The Results tab's filter bar has three single on/off toggles alongside the
+Ligand/Binding-site quality filters: **Not found complexes** (structures RCSB/PDB-REDO/EDS had no
+usable data for at all), **Not found RSR/RSCC** (ligands/binding sites missing validation stats, per above), and
+**Not found EDM** (structures missing the density map file). Each is active (visible) by default;
+switching one off hides just that subset, independently of the Ligand/Binding-site quality filters
+and of each other.
 
 Enabling any of the **advanced checks** below (all off by default) adds further fail points on
 the same scale:
@@ -415,6 +441,8 @@ Returns `400` with `{"error": "..."}` if the text is empty or no valid entries c
           "source": "PDB",
           "ligand_score": 0,
           "binding_site_score": 0,
+          "ligand_density_data_available": true,
+          "binding_site_density_data_available": true,
           "low_occupancy": [],
           "other_ligands": [],
           "density_boxes": {
@@ -430,7 +458,8 @@ Returns `400` with `{"error": "..."}` if the text is empty or no valid entries c
         }
       ],
       "rejected": {},
-      "struc_dict": { "rFree": 0.218, "rWork": 0.175 }
+      "struc_dict": { "rFree": 0.218, "rWork": 0.175 },
+      "edm_available": true
     }
   ]
 }
@@ -451,8 +480,10 @@ never leaks another ligand into the current scene).
 `residue_qualities` maps every entry in `residues_to_examine` to the classification it was
 computed with (`"Dubious"` or `"Bad"` — by construction, a component never ends up in
 `residues_to_examine` if it's `"Good"`). This is what pre-selects the right button for each
-component in the 3D Viewer's [manual quality review](#manual-quality-review) panel; overrides made
-there are a browser-only annotation layer and are never sent back to this API.
+component in the 3D Viewer's [manual quality review](#manual-quality-review) panel. Overrides made
+there are a browser-only annotation layer. They update the in-memory results the Results tab
+renders from, but are never sent back to this API or persisted to disk — re-running the analysis
+or reloading the page discards them.
 
 ### `GET /api/edm-exists/<pdbid>`
 

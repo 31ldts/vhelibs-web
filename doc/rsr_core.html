@@ -302,6 +302,7 @@ Raises:<br>
  <dl><dt><a name="-get_binding_site"><strong>get_binding_site</strong></a>(
     ligand,
     ligand_score,
+    ligand_has_density_data,
     good_rsr,
     bad_rsr,
     dubious_rsr,
@@ -326,6 +327,11 @@ Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;being&nbsp;analyzed.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;ligand_score&nbsp;(int):&nbsp;Precomputed&nbsp;maximum&nbsp;per-residue&nbsp;score&nbsp;for&nbsp;this<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ligand&nbsp;(from&nbsp;the&nbsp;caller's&nbsp;scoring&nbsp;pass).<br>
+&nbsp;&nbsp;&nbsp;&nbsp;ligand_has_density_data&nbsp;(bool):&nbsp;Whether&nbsp;every&nbsp;residue&nbsp;originally<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;in&nbsp;this&nbsp;ligand&nbsp;group&nbsp;had&nbsp;density&nbsp;validation&nbsp;data.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Passed&nbsp;through&nbsp;unchanged;&nbsp;the&nbsp;binding-site&nbsp;equivalent&nbsp;is<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;computed&nbsp;here,&nbsp;since&nbsp;binding-site&nbsp;residues&nbsp;(unlike&nbsp;ligand<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;residues)&nbsp;are&nbsp;never&nbsp;pruned&nbsp;for&nbsp;missing&nbsp;data.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;good_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"good";&nbsp;may&nbsp;be<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;updated&nbsp;via&nbsp;:func:`classificate_residue`.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;bad_rsr&nbsp;(set):&nbsp;Set&nbsp;of&nbsp;residue&nbsp;keys&nbsp;classified&nbsp;as&nbsp;"bad";&nbsp;may&nbsp;be<br>
@@ -355,7 +361,7 @@ Args:<br>
 Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;list&nbsp;or&nbsp;tuple:&nbsp;If&nbsp;the&nbsp;ligand&nbsp;is&nbsp;disqualified&nbsp;due&nbsp;to&nbsp;a&nbsp;covalent<br>
 &nbsp;&nbsp;&nbsp;&nbsp;bond&nbsp;to&nbsp;a&nbsp;blacklisted&nbsp;ligand&nbsp;or&nbsp;metal,&nbsp;a&nbsp;1-element&nbsp;list<br>
-&nbsp;&nbsp;&nbsp;&nbsp;``[reason_string]``.&nbsp;Otherwise,&nbsp;an&nbsp;8-tuple:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``[reason_string]``.&nbsp;Otherwise,&nbsp;a&nbsp;10-tuple:<br>
 &nbsp;<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;ligand&nbsp;(set):&nbsp;The&nbsp;input&nbsp;ligand&nbsp;residue&nbsp;set&nbsp;(possibly<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;unchanged).<br>
@@ -372,6 +378,12 @@ Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;through&nbsp;unchanged.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;bs_score&nbsp;(int):&nbsp;Maximum&nbsp;per-residue&nbsp;score&nbsp;among&nbsp;the&nbsp;binding<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;site&nbsp;residues.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;ligand_has_density_data&nbsp;(bool):&nbsp;The&nbsp;input&nbsp;value,&nbsp;passed<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;through&nbsp;unchanged&nbsp;—&nbsp;whether&nbsp;``ligandgood``&nbsp;might&nbsp;be&nbsp;an<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;artifact&nbsp;of&nbsp;missing&nbsp;density-validation&nbsp;data&nbsp;rather&nbsp;than&nbsp;a<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;genuine&nbsp;density-fit&nbsp;problem.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;bs_has_density_data&nbsp;(bool):&nbsp;Same,&nbsp;but&nbsp;for&nbsp;``bsgood``&nbsp;/<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``inner_binding_site``.<br>
 &nbsp;<br>
 Raises:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;KeyError:&nbsp;If&nbsp;a&nbsp;ligand&nbsp;residue&nbsp;key&nbsp;is&nbsp;missing&nbsp;from<br>
@@ -415,6 +427,8 @@ Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;dict:&nbsp;On&nbsp;success,&nbsp;a&nbsp;dict&nbsp;with&nbsp;keys:<br>
 &nbsp;<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"pdbid"``&nbsp;(str):&nbsp;The&nbsp;analysed&nbsp;PDB&nbsp;identifier.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"title"``&nbsp;(str):&nbsp;The&nbsp;entry's&nbsp;RCSB&nbsp;title&nbsp;(``struct.title``),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;for&nbsp;display&nbsp;next&nbsp;to&nbsp;the&nbsp;PDB&nbsp;ID;&nbsp;empty&nbsp;string&nbsp;if&nbsp;unavailable.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;``"ligands"``&nbsp;(list):&nbsp;List&nbsp;of&nbsp;per-ligand&nbsp;result&nbsp;dicts,&nbsp;each<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;containing&nbsp;ligand/binding-site&nbsp;residues,&nbsp;quality&nbsp;labels,<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;scores,&nbsp;density&nbsp;boxes,&nbsp;and&nbsp;density&nbsp;atom&nbsp;coordinates.<br>
@@ -458,8 +472,8 @@ Args:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;when&nbsp;not&nbsp;given.<br>
 &nbsp;<br>
 Returns:<br>
-&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;On&nbsp;success,&nbsp;a&nbsp;5-tuple<br>
-&nbsp;&nbsp;&nbsp;&nbsp;``(natoms,&nbsp;res_atom_dict,&nbsp;ligand_res_atom_dict,&nbsp;notligands,&nbsp;links)``:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;tuple:&nbsp;On&nbsp;success,&nbsp;a&nbsp;6-tuple<br>
+&nbsp;&nbsp;&nbsp;&nbsp;``(natoms,&nbsp;res_atom_dict,&nbsp;ligand_res_atom_dict,&nbsp;notligands,&nbsp;links,&nbsp;res_names)``:<br>
 &nbsp;<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;natoms&nbsp;(float):&nbsp;Total&nbsp;occupancy-weighted&nbsp;atom&nbsp;count.<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;res_atom_dict&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;a&nbsp;set&nbsp;of<br>
@@ -473,6 +487,14 @@ Returns:<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;links&nbsp;(list):&nbsp;List&nbsp;of&nbsp;``(res1,&nbsp;res2,&nbsp;bond_length)``&nbsp;tuples<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;describing&nbsp;covalent/disulfide/metal-coordination<br>
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;connections.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;-&nbsp;res_names&nbsp;(dict):&nbsp;Mapping&nbsp;of&nbsp;residue&nbsp;key&nbsp;to&nbsp;its&nbsp;full<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;chemical&nbsp;name&nbsp;(e.g.&nbsp;``"ADENOSINE-5'-TRIPHOSPHATE"``&nbsp;for&nbsp;an<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``"ATP"``&nbsp;residue),&nbsp;taken&nbsp;from&nbsp;the&nbsp;entry's&nbsp;own<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;``_chem_comp``&nbsp;records&nbsp;(see<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:func:`_extract_chem_comp_names`).&nbsp;A&nbsp;residue&nbsp;is&nbsp;absent&nbsp;from<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;this&nbsp;dict&nbsp;if&nbsp;its&nbsp;component&nbsp;has&nbsp;no&nbsp;usable&nbsp;name&nbsp;in&nbsp;the&nbsp;file<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(this&nbsp;is&nbsp;common&nbsp;for&nbsp;PDB-REDO&nbsp;``.cif``&nbsp;files,&nbsp;which&nbsp;don't<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;carry&nbsp;a&nbsp;``_chem_comp``&nbsp;loop&nbsp;at&nbsp;all).<br>
 &nbsp;<br>
 &nbsp;&nbsp;&nbsp;&nbsp;On&nbsp;failure,&nbsp;a&nbsp;1-tuple&nbsp;``(error_string,)``&nbsp;describing&nbsp;the&nbsp;parsing<br>
 &nbsp;&nbsp;&nbsp;&nbsp;error.<br>
