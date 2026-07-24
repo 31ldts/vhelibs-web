@@ -22,6 +22,7 @@ dependencies. `pip install`, run, and it opens in your browser.
 - [Using the app](#using-the-app)
   - [Analysis tab](#analysis-tab)
     - [Editing the ligand blacklist](#editing-the-ligand-blacklist)
+    - [Clearing the disk cache](#clearing-the-disk-cache)
   - [Results tab](#results-tab)
     - [Exporting results](#exporting-results)
   - [3D Viewer tab](#3d-viewer-tab)
@@ -74,7 +75,8 @@ structures are safe to use for docking, pharmacophore modelling, or structure-ba
   site, or individual "component to examine" directly from the 3D Viewer, and write the
   correction back into the Results tab.
 - **Disk caching** of every downloaded structure/statistics file, so re-running an analysis (or
-  re-opening the 3D viewer) doesn't re-hit external APIs.
+  re-opening the 3D viewer) doesn't re-hit external APIs. Nothing is removed from it
+  automatically — the Analysis tab's **Clear disk cache** button deletes it on demand.
 - **Scriptable REST API** — every action the web UI performs is a plain HTTP call (see
   [REST API](#rest-api)), so batch runs can be driven headlessly without a browser; see
   [Scripting the API / example script](#scripting-the-api--example-script) for a ready-to-run
@@ -161,6 +163,15 @@ normally excludes from scoring rather than treating as ligands. You can:
 
 None of this modifies VHELIBS' shared built-in tables — it's scoped to the browser session and
 sent along with the next **Analyse** request only.
+
+#### Clearing the disk cache
+
+Every structure, validation report, and density map VHELIBS downloads is cached on the server's
+disk, and nothing ever removes it automatically otherwise. The
+**Clear disk cache** button under *Use cached downloads* deletes the whole
+cache on demand (after a confirmation prompt, since it can't be undone): use it to reclaim disk
+space. It
+reports how many files were removed and how much space was freed.
 
 ### Results tab
 
@@ -518,6 +529,21 @@ Returns a single pre-masked `.ccp4` density map for one region (`region` is `lig
 Returns the raw `.ccp4` file (`application/octet-stream`) on success, or `404` with
 `{"error": "..."}` if the region is invalid or no map could be produced (e.g. no source map
 available for this entry/source).
+
+### `POST /api/cache/clear`
+
+Deletes everything under the server's on-disk cache. The cache is otherwise never cleaned up
+automatically, so this is the only way to reclaim that disk space. Powers the Analysis tab's
+[**Clear disk cache**](#clearing-the-disk-cache) button; takes no body/parameters.
+
+**Response:**
+
+```json
+{ "removed_files": 128, "freed_bytes": 47185920, "errors": [] }
+```
+
+`errors` lists any cache entries that could not be deleted (e.g. a permissions problem) — the rest
+of the cleanup still proceeds.
 
 ## Scripting the API / example script
 
