@@ -1163,7 +1163,7 @@ def _score_binding_site_residues(inner_binding_site, res_atom_dict, edd_dict, st
     return bs_score
 
 
-def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
+def get_binding_site(ligand, ligand_score, ligand_has_density_data, good_rsr, bad_rsr, dubious_rsr,
                      pdbid, res_atom_dict, ligands, ligand_res_atom_dict,
                      edd_dict, struc_dict, notligands, cfg):
     """Compute the binding site and quality assessment for a ligand group.
@@ -1179,6 +1179,11 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
             being analyzed.
         ligand_score (int): Precomputed maximum per-residue score for this
             ligand (from the caller's scoring pass).
+        ligand_has_density_data (bool): Whether every residue originally
+            in this ligand group had density validation data.
+            Passed through unchanged; the binding-site equivalent is
+            computed here, since binding-site residues (unlike ligand
+            residues) are never pruned for missing data.
         good_rsr (set): Set of residue keys classified as "good"; may be
             updated via :func:`classificate_residue`.
         bad_rsr (set): Set of residue keys classified as "bad"; may be
@@ -1208,7 +1213,7 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
     Returns:
         list or tuple: If the ligand is disqualified due to a covalent
         bond to a blacklisted ligand or metal, a 1-element list
-        ``[reason_string]``. Otherwise, an 8-tuple:
+        ``[reason_string]``. Otherwise, a 10-tuple:
 
             - ligand (set): The input ligand residue set (possibly
               unchanged).
@@ -1225,6 +1230,12 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
               through unchanged.
             - bs_score (int): Maximum per-residue score among the binding
               site residues.
+            - ligand_has_density_data (bool): The input value, passed
+              through unchanged — whether ``ligandgood`` might be an
+              artifact of missing density-validation data rather than a
+              genuine density-fit problem.
+            - bs_has_density_data (bool): Same, but for ``bsgood`` /
+              ``inner_binding_site``.
 
     Raises:
         KeyError: If a ligand residue key is missing from
@@ -1244,6 +1255,7 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
         inner_binding_site |= _other_ligand_contacts(
             ligandres, ligand_atoms, ligand, ligands, ligand_res_atom_dict, cfg)
 
+    bs_has_density_data = _all_have_density_data(inner_binding_site, edd_dict)
     bad_occupancy = _low_occupancy_residues(ligand, edd_dict)
     bs_score = _score_binding_site_residues(
         inner_binding_site, res_atom_dict, edd_dict, struc_dict,
@@ -1252,7 +1264,8 @@ def get_binding_site(ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
     rte = (inner_binding_site | ligand) - good_rsr
     ligandgood = validate(ligand, good_rsr, bad_rsr, dubious_rsr)
     bsgood = validate(inner_binding_site, good_rsr, bad_rsr, dubious_rsr)
-    return ligand, inner_binding_site, rte, ligandgood, bsgood, bad_occupancy, ligand_score, bs_score
+    return (ligand, inner_binding_site, rte, ligandgood, bsgood, bad_occupancy, ligand_score, bs_score,
+            ligand_has_density_data, bs_has_density_data)
 
 
 # ---------------------------------------------------------------------------
@@ -1454,6 +1467,31 @@ def _prune_covalently_bound_ligands(links, res_atom_dict, ligand_res_atom_dict, 
             all_links_parsed = True
 
 
+def _all_have_density_data(residues, edd_dict):
+    """Whether every residue in ``residues`` has density validation stats.
+
+    Args:
+        residues (iterable): Residue keys to check.
+        edd_dict (dict): Mapping of residue key to per-residue validation
+            stats (RSR, RSCC, occupancy, ...), as produced by
+            :func:`core.eds_utils.get_EDS`/:func:`core.pdb_redo_utils.get_ED_data`.
+
+    Returns:
+        bool: ``True`` if every residue has a (truthy) entry in
+        ``edd_dict`` — vacuously ``True`` for an empty ``residues``.
+        ``False`` if at least one residue has none, which is exactly the
+        condition that makes :func:`classificate_residue` apply its
+        severe "No data for X" penalty (see :func:`_score_residue_data`)
+        — so ``False`` here means the resulting quality label may be an
+        artifact of missing density data rather than a genuine
+        density-fit problem.
+
+    Raises:
+        None
+    """
+    return all(edd_dict.get(r) for r in residues)
+
+
 def _score_ligands(ligands, edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, notligands):
     """Score every residue of every ligand group, pruning disqualified ones.
 
@@ -1474,15 +1512,23 @@ def _score_ligands(ligands, edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr
         notligands (dict): Updated in place with disqualification reasons.
 
     Returns:
-        list: Maximum per-residue score for each ligand group, in the
-        same order as ``ligands``.
+        tuple: A 2-tuple ``(ligand_scores, ligand_has_density_data)``,
+        each a list parallel to ``ligands``:
+
+            - ligand_scores (list): Maximum per-residue score for each
+              ligand group.
+            - ligand_has_density_data (list): Whether every residue
+              originally in that ligand group had density validation
+              data, computed before any missing-data residue is discarded below.
 
     Raises:
         None
     """
     ligand_scores = []
+    ligand_has_density_data = []
     for ligand in ligands:
         ligand_score = 0
+        has_density_data = _all_have_density_data(ligand, edd_dict)
         for res in list(ligand):
             residue_dict = edd_dict.get(res)
             score, reason = classificate_residue(
@@ -1492,10 +1538,11 @@ def _score_ligands(ligands, edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr
                 ligand.discard(res)
             ligand_score = max(ligand_score, score)
         ligand_scores.append(ligand_score)
-    return ligand_scores
+        ligand_has_density_data.append(has_density_data)
+    return ligand_scores, ligand_has_density_data
 
 
-def _compute_binding_sites(ligands, ligand_scores, good_rsr, bad_rsr, dubious_rsr,
+def _compute_binding_sites(ligands, ligand_scores, ligand_has_density_data, good_rsr, bad_rsr, dubious_rsr,
                            pdbid, res_atom_dict, ligand_res_atom_dict,
                            edd_dict, struc_dict, notligands, cfg):
     """Compute the binding site for every non-empty ligand group.
@@ -1509,6 +1556,9 @@ def _compute_binding_sites(ligands, ligand_scores, good_rsr, bad_rsr, dubious_rs
             :func:`_score_ligands`.
         ligand_scores (list): Maximum per-residue score per ligand group,
             parallel to ``ligands``.
+        ligand_has_density_data (list): Whether every residue originally
+            in each ligand group had density validation data, parallel
+            to ``ligands``.
         good_rsr (set): Passed through to :func:`get_binding_site`.
         bad_rsr (set): Passed through to :func:`get_binding_site`.
         dubious_rsr (set): Passed through to :func:`get_binding_site`.
@@ -1530,11 +1580,11 @@ def _compute_binding_sites(ligands, ligand_scores, good_rsr, bad_rsr, dubious_rs
         None
     """
     ligand_bs_list = []
-    for ligand, ligand_score in zip(ligands, ligand_scores):
+    for ligand, ligand_score, ligand_data_available in zip(ligands, ligand_scores, ligand_has_density_data):
         if not ligand:
             continue
         bs = get_binding_site(
-            ligand, ligand_score, good_rsr, bad_rsr, dubious_rsr,
+            ligand, ligand_score, ligand_data_available, good_rsr, bad_rsr, dubious_rsr,
             pdbid, res_atom_dict, ligands, ligand_res_atom_dict,
             edd_dict, struc_dict, notligands, cfg)
         if len(bs) == 1:
@@ -1589,7 +1639,7 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
     study for this entry — any other ligand present stays hidden.
 
     Args:
-        data (tuple): A success tuple as returned by
+        data (tuple): A 10-element success tuple as returned by
             :func:`get_binding_site`.
         all_ligand_keys (set): Every residue key belonging to any ligand
             group in the structure (after per-residue pruning).
@@ -1615,7 +1665,8 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
     Raises:
         None
     """
-    ligandresidues, binding_site, rte, ligandgood, bsgood, bad_occupancy, lig_score, bs_score = data
+    (ligandresidues, binding_site, rte, ligandgood, bsgood, bad_occupancy, lig_score, bs_score,
+     ligand_has_density_data, bs_has_density_data) = data
     if not ligandresidues:
         return None
 
@@ -1654,6 +1705,8 @@ def _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict
         "source": source,
         "ligand_score": lig_score,
         "binding_site_score": bs_score,
+        "ligand_density_data_available": ligand_has_density_data,
+        "binding_site_density_data_available": bs_has_density_data,
         "low_occupancy": sorted(display_bad_occupancy),
         # Other ligand(s) present in this structure that are NOT shown
         # in the 3D viewer for this entry. Purely informational for the
@@ -1718,6 +1771,11 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
     """
     source = "PDB_REDO" if cfg.pdb_redo else "PDB"
 
+    if cfg.pdb_redo:
+        edm_available = True
+    else:
+        edm_available = eds_utils.edm_exists(pdbid, use_cache=cfg.use_cache)
+
     result_ligands = []
     for data in ligand_bs_list:
         serialized = _serialize_ligand(data, all_ligand_keys, res_atom_dict, ligand_res_atom_dict, source,
@@ -1735,6 +1793,7 @@ def _build_result(pdbid, ligand_bs_list, all_ligand_keys, notligands, struc_dict
         "ligands": result_ligands,
         "rejected": {k: str(v) for k, v in notligands.items()},
         "struc_dict": safe_struc,
+        "edm_available": edm_available,
     }
 
 
@@ -1814,7 +1873,7 @@ def parse_binding_site(pdbid, cfg=None):
     good_rsr, dubious_rsr, bad_rsr = set(), set(), set()
     ligands = group_ligands(ligand_res_atom_dict.keys(), links)
 
-    ligand_scores = _score_ligands(
+    ligand_scores, ligand_has_density_data = _score_ligands(
         ligands, edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, notligands)
 
     # Snapshot of every residue belonging to *any* ligand group in this
@@ -1828,7 +1887,7 @@ def parse_binding_site(pdbid, cfg=None):
     all_ligand_keys = set().union(*ligands) if ligands else set()
 
     ligand_bs_list = _compute_binding_sites(
-        ligands, ligand_scores, good_rsr, bad_rsr, dubious_rsr,
+        ligands, ligand_scores, ligand_has_density_data, good_rsr, bad_rsr, dubious_rsr,
         pdbid, res_atom_dict, ligand_res_atom_dict, edd_dict, struc_dict,
         notligands, cfg)
 

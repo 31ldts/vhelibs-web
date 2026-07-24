@@ -637,6 +637,16 @@ function qualityClass(q) {
   return "error";
 }
 
+// Whether density validation stats (RSR/RSCC) were available for every
+// residue of BOTH the ligand and its binding site. When false, a
+// "Bad" ligand_quality/binding_site_quality can simply mean there was no
+// data to judge — not necessarily a real density-fit problem — which is
+// why this is exposed as its own filter axis rather than folded into
+// the quality badges.
+function hasDensityData(l) {
+  return l.ligand_density_data_available !== false && l.binding_site_density_data_available !== false;
+}
+
 function renderResults(results) {
   if (!results || !results.length) {
     resultsEmpty.classList.remove("hidden");
@@ -674,12 +684,16 @@ function updateFilterCounts(results) {
     ligand: { Good: 0, Dubious: 0, Bad: 0 },
     bs:     { Good: 0, Dubious: 0, Bad: 0 },
     errors: 0,
+    rsrccMissing: 0,
+    edmMissing: 0,
   };
   results.forEach(r => {
     if (r.error) { tally.errors++; return; }
+    if (r.edm_available === false) tally.edmMissing++;
     (r.ligands || []).forEach(l => {
       if (tally.ligand[l.ligand_quality] != null) tally.ligand[l.ligand_quality]++;
       if (tally.bs[l.binding_site_quality] != null) tally.bs[l.binding_site_quality]++;
+      if (!hasDensityData(l)) tally.rsrccMissing++;
     });
   });
 
@@ -687,7 +701,9 @@ function updateFilterCounts(results) {
     const span = btn.querySelector(".filter-count");
     if (!span) return;
     const axis = btn.dataset.axis;
-    const n = axis === "errors" ? tally.errors : ((tally[axis] || {})[btn.dataset.value] || 0);
+    const n = (axis === "errors" || axis === "rsrccMissing" || axis === "edmMissing")
+      ? tally[axis]
+      : ((tally[axis] || {})[btn.dataset.value] || 0);
     span.textContent = `(${n})`;
   });
 }
@@ -708,23 +724,35 @@ function activeValuesFor(axis) {
 }
 
 // Shows only the ligand entries (and their parent structure card) whose
-// ligand AND binding-site quality both have an active toggle, and shows/
-// hides error cards ("Not found" structures) based on their own toggle.
+// ligand AND binding-site quality both have an active toggle, and whose
+// RSR/RSCC and EDM availability isn't excluded by the "Not found ..."
+// toggles below.
 function applyResultsFilter() {
   const ligandActive = activeValuesFor("ligand");
   const bsActive      = activeValuesFor("bs");
-  const errorsBtn     = document.querySelector('.filter-toggle[data-axis="errors"]');
-  const showErrors    = errorsBtn ? toggleIsActive(errorsBtn) : true;
+
+  const errorsBtn = document.querySelector('.filter-toggle[data-axis="errors"]');
+  const rsrccBtn  = document.querySelector('.filter-toggle[data-axis="rsrccMissing"]');
+  const edmBtn    = document.querySelector('.filter-toggle[data-axis="edmMissing"]');
+  const showErrors        = errorsBtn ? toggleIsActive(errorsBtn) : true;
+  const showMissingRsrcc  = rsrccBtn  ? toggleIsActive(rsrccBtn)  : true;
+  const showMissingEdm    = edmBtn    ? toggleIsActive(edmBtn)    : true;
 
   let visibleLigands = 0;
   let visibleCards = 0;
 
   resultsContainer.querySelectorAll(".result-card").forEach(card => {
+    if (card.dataset.edm === "no" && !showMissingEdm) {
+      card.classList.add("hidden");
+      return;
+    }
     let cardHasMatch = false;
     card.querySelectorAll(".ligand-entry").forEach(entry => {
+      const rsrccMissing = entry.dataset.density === "no";
       const matches =
         ligandActive.has(entry.dataset.ligandQuality) &&
-        bsActive.has(entry.dataset.bsQuality);
+        bsActive.has(entry.dataset.bsQuality) &&
+        (showMissingRsrcc || !rsrccMissing);
       entry.classList.toggle("hidden", !matches);
       if (matches) { cardHasMatch = true; visibleLigands++; }
     });
@@ -768,6 +796,9 @@ function buildResultCard(r) {
 
   const card = document.createElement("div");
   card.className = "result-card";
+  // Used by applyResultsFilter() for the "Not found EDM" toggle.
+  const edmMissing = r.edm_available === false;
+  card.dataset.edm = edmMissing ? "no" : "yes";
 
   const ligands = r.ligands || [];
 
@@ -777,6 +808,7 @@ function buildResultCard(r) {
     <span class="result-pdbid">${esc(r.pdbid.toUpperCase())}</span>
     ${r.title ? `<span class="result-title" style="margin-left:8px;font-weight:normal;color:var(--clr-muted,#666)">${esc(r.title)}</span>` : ""}
     ${r.uniprot ? `<span class="badge" style="margin-left:6px">UniProt: ${esc(r.uniprot)}</span>` : ""}
+    ${edmMissing ? `<span class="badge badge-dubious" style="margin-left:6px" title="No electron-density map (EDM) file could be found for this structure — the 3D viewer won't be able to show density.">⚠ No EDM</span>` : ""}
     <span class="result-badges">
       ${ligands.length} ligand(s)
     </span>
@@ -803,17 +835,21 @@ function buildResultCard(r) {
   ligands.forEach((l, i) => {
     const qc2 = qualityClass(l.ligand_quality);
     const bsQc = qualityClass(l.binding_site_quality);
+    const noLigandData = l.ligand_density_data_available === false;
+    const noBsData = l.binding_site_density_data_available === false;
     const entry = document.createElement("div");
     entry.className = "ligand-entry";
     // Used by applyResultsFilter() to show/hide this entry based on the
-    // Ligand-quality / Binding-site-quality filter selectors.
+    // Ligand-quality / Binding-site-quality / Density-data filter
+    // selectors.
     entry.dataset.ligandQuality = l.ligand_quality || "";
     entry.dataset.bsQuality = l.binding_site_quality || "";
+    entry.dataset.density = hasDensityData(l) ? "yes" : "no";
     entry.innerHTML = `
       <div class="ligand-entry-header">
         <div>
-          <span class="badge badge-${qc2}">Ligand: ${l.ligand_quality}</span>
-          <span class="badge badge-${bsQc}" style="margin-left:6px">BS: ${l.binding_site_quality}</span>
+          <span class="badge badge-${qc2}" ${noLigandData ? 'title="No density validation data (RSR/RSCC) was found for this ligand — this quality verdict may just mean there was nothing to judge, not a genuine density-fit problem."' : ''}>Ligand: ${l.ligand_quality}${noLigandData ? " ⚠" : ""}</span>
+          <span class="badge badge-${bsQc}" style="margin-left:6px" ${noBsData ? 'title="No density validation data (RSR/RSCC) was found for at least one binding-site residue — this quality verdict may just mean there was nothing to judge, not a genuine density-fit problem."' : ''}>BS: ${l.binding_site_quality}${noBsData ? " ⚠" : ""}</span>
           ${l._manuallyEdited ? `<span class="review-edited-flag" title="Manually reviewed in the 3D Viewer">✎ edited</span>` : ""}
         </div>
         <button class="view-btn" data-pdbid="${esc(r.pdbid)}"

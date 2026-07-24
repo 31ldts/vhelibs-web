@@ -5,11 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VHELIBS – Validation Helper for LIgands and Binding Sites</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  <!-- Mol* Viewer (WebGL 3D structure viewer). Pinned to the 5.x line;
-       bump deliberately after testing rather than tracking @latest.
-       NOTE: bumped from 4.x -> 5.x because per-residue density masking
-       (volume representation .clip()) requires Mol* >= 5.0; it does not
-       exist in the 4.x MolViewSpec grammar. -->
   <script src="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.js"></script>
   <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/molstar@5/build/viewer/molstar.css" />
   <!-- ExcelJS: used only to build the two-sheet .xlsx export on the Results tab (see exportResults() in app.js).
@@ -209,13 +204,19 @@
               <button type="button" class="filter-toggle badge badge-bad"     data-axis="bs" data-value="Bad">Bad <span class="filter-count">0</span></button>
             </div>
           </div>
-          <button type="button" class="filter-toggle badge badge-error" data-axis="errors" data-value="errors">⚠ Not found <span class="filter-count">0</span></button>
           <div class="filter-side-buttons">
             <div class="filter-side-buttons-row">
               <button id="filterResetBtn" type="button" class="btn btn-secondary">Show All</button>
               <button id="exportResultsBtn" type="button" class="btn btn-secondary">Export (.xlsx)</button>
             </div>
           </div>
+        </div>
+        <div class="filter-row filter-row-vertical" style="display:flex; flex-direction:row; align-items:flex-start; gap:6px;">
+          <button type="button" class="filter-toggle badge badge-error" data-axis="errors" data-value="errors">Not found complexes <span class="filter-count">0</span></button>
+          <button type="button" class="filter-toggle badge badge-error" data-axis="rsrccMissing" data-value="missing"
+                  title="Structures/ligands where no electron-density validation stats (RSR/RSCC) were found. A 'Bad' quality verdict here can simply mean there was no data to judge, rather than a genuine density-fit problem.">Not found RSR/RSCC <span class="filter-count">0</span></button>
+          <button type="button" class="filter-toggle badge badge-error" data-axis="edmMissing" data-value="missing"
+                  title="Structures where no electron-density map (EDM) file could be found — the 3D viewer won't be able to show density for these.">Not found EDM <span class="filter-count">0</span></button>
         </div>
         <p id="resultsFilterCount" class="th-hint mt-8"></p>
         <p id="exportStatus" class="th-hint mt-8 hidden"></p>
@@ -444,10 +445,11 @@
           with independent, toggleable layers for the protein, ligand, and binding site. When a
           structure has an associated 2Fo-Fc electron density map, it can also be overlaid,
           segmented per region (ligand / binding site / components to examine) rather than shown as
-          one whole-model surface. Density is streamed on demand from EBI's density server as small
-          boxes around each region and clipped to a sphere around every atom, so you're only ever
-          looking at density that belongs to the components you're inspecting. The contour level
-          (isovalue, in σ) and the per-atom mask radius are both adjustable live from the sidebar.
+          one whole-model surface. The density is cropped and masked around every atom of a region
+          on the server before it ever reaches the browser, so you're only ever looking at density
+          that belongs to the components you're inspecting, and the viewer only has to render one
+          surface per region. The contour level (isovalue, in σ) and the per-atom mask radius are
+          both adjustable live from the sidebar.
           If a structure contains more than one ligand, opening the 3D view for one of them shows
           only that ligand and its own binding site — any other ligand present in the structure is
           left out of the scene entirely.
