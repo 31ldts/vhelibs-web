@@ -654,6 +654,99 @@ class TestValidate:
 
 
 # ---------------------------------------------------------------------------
+# _all_have_density_data
+# ---------------------------------------------------------------------------
+
+class TestAllHaveDensityData:
+    def test_all_present_is_true(self):
+        edd_dict = {"A": {"RSR": 0.1}, "B": {"RSR": 0.2}}
+        assert rsr_core._all_have_density_data({"A", "B"}, edd_dict) is True
+
+    def test_one_missing_is_false(self):
+        edd_dict = {"A": {"RSR": 0.1}}
+        assert rsr_core._all_have_density_data({"A", "B"}, edd_dict) is False
+
+    def test_all_missing_is_false(self):
+        assert rsr_core._all_have_density_data({"A", "B"}, {}) is False
+
+    def test_empty_residues_is_vacuously_true(self):
+        # No residues to check data for -> nothing is missing.
+        assert rsr_core._all_have_density_data(set(), {}) is True
+
+    def test_falsy_entry_counts_as_missing(self):
+        # An explicit empty dict for a residue is falsy, same as absent —
+        # matches _score_residue_data's own `if not residue_dict` check.
+        edd_dict = {"A": {}, "B": {"RSR": 0.1}}
+        assert rsr_core._all_have_density_data({"A", "B"}, edd_dict) is False
+
+
+# ---------------------------------------------------------------------------
+# _score_ligands (ligand_has_density_data tracking)
+# ---------------------------------------------------------------------------
+
+class TestScoreLigandsDensityData:
+    def test_ligand_with_full_data_is_true(self):
+        cfg = rsr_core.AnalysisConfig()
+        key = format_reskey("REA", "A", 200)
+        edd_dict = {key: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
+        struc_dict = {"rFree": 0.2}
+        good_rsr, dubious_rsr, bad_rsr = set(), set(), set()
+
+        scores, has_data = rsr_core._score_ligands(
+            [{key}], edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, {})
+
+        assert has_data == [True]
+
+    def test_ligand_missing_data_is_false_even_after_pruning(self):
+        # The whole point of computing has_density_data BEFORE the
+        # pruning loop: the missing-data residue gets discarded from the
+        # ligand set by _score_ligands itself, so checking membership
+        # AFTER pruning would always read back True (nothing left to be
+        # missing). This is the regression this feature guards against.
+        cfg = rsr_core.AnalysisConfig()
+        key = format_reskey("REA", "A", 200)
+        struc_dict = {"rFree": 0.2}
+        good_rsr, dubious_rsr, bad_rsr = set(), set(), set()
+        ligand = {key}
+        notligands = {}
+
+        scores, has_data = rsr_core._score_ligands(
+            [ligand], {}, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, notligands)
+
+        assert has_data == [False]
+        assert ligand == set()  # residue was pruned (score >= 1000)
+        assert key in notligands
+
+    def test_partial_data_in_multi_residue_ligand_is_false(self):
+        cfg = rsr_core.AnalysisConfig()
+        key_a = format_reskey("REA", "A", 200)
+        key_b = format_reskey("REA", "A", 201)
+        edd_dict = {key_a: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
+        struc_dict = {"rFree": 0.2}
+        good_rsr, dubious_rsr, bad_rsr = set(), set(), set()
+
+        scores, has_data = rsr_core._score_ligands(
+            [{key_a, key_b}], edd_dict, struc_dict, good_rsr, dubious_rsr, bad_rsr, cfg, {})
+
+        assert has_data == [False]
+
+    def test_results_are_parallel_to_input_ligands_list(self):
+        cfg = rsr_core.AnalysisConfig()
+        key_good = format_reskey("REA", "A", 200)
+        key_bad = format_reskey("REA", "A", 300)
+        edd_dict = {key_good: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
+        struc_dict = {"rFree": 0.2}
+        good_rsr, dubious_rsr, bad_rsr = set(), set(), set()
+
+        scores, has_data = rsr_core._score_ligands(
+            [{key_good}, {key_bad}], edd_dict, struc_dict,
+            good_rsr, dubious_rsr, bad_rsr, cfg, {})
+
+        assert has_data == [True, False]
+        assert len(scores) == len(has_data) == 2
+
+
+# ---------------------------------------------------------------------------
 # group_ligands
 # ---------------------------------------------------------------------------
 
@@ -744,12 +837,13 @@ class TestGetBindingSite:
             good_rsr, dubious_rsr, bad_rsr, cfg)
 
         result = rsr_core.get_binding_site(
-            ligand, 0, good_rsr, bad_rsr, dubious_rsr, "1cbs",
+            ligand, 0, True, good_rsr, bad_rsr, dubious_rsr, "1cbs",
             res_atom_dict, ligands, ligand_res_atom_dict,
             edd_dict, struc_dict, notligands, cfg)
 
         (ligandresidues, binding_site, rte, ligandgood, bsgood,
-         bad_occupancy, lig_score, bs_score) = result
+         bad_occupancy, lig_score, bs_score,
+         ligand_has_density_data, bs_has_density_data) = result
 
         assert binding_site == {bs_key}
         assert bad_occupancy == []
@@ -757,6 +851,8 @@ class TestGetBindingSite:
         assert bsgood == "Good"
         assert bs_score == 0
         assert rte == set()
+        assert ligand_has_density_data is True
+        assert bs_has_density_data is True
 
     def test_distant_protein_residue_excluded(self):
         cfg = rsr_core.AnalysisConfig()
@@ -774,7 +870,7 @@ class TestGetBindingSite:
         ligand = {ligand_key}
 
         result = rsr_core.get_binding_site(
-            ligand, 0, good_rsr, bad_rsr, dubious_rsr, "1cbs",
+            ligand, 0, True, good_rsr, bad_rsr, dubious_rsr, "1cbs",
             res_atom_dict, [ligand], ligand_res_atom_dict,
             edd_dict, struc_dict, {}, cfg)
 
@@ -787,7 +883,7 @@ class TestGetBindingSite:
         notligands = {ligand_key: "Some earlier rejection reason"}
 
         result = rsr_core.get_binding_site(
-            {ligand_key}, 0, set(), set(), set(), "1cbs",
+            {ligand_key}, 0, True, set(), set(), set(), "1cbs",
             {}, [{ligand_key}], {ligand_key: set()},
             {}, {}, notligands, cfg)
 
@@ -803,7 +899,7 @@ class TestGetBindingSite:
         bs_atom = make_real_atom("HIS", "A", 8, 0, 0, 0)  # dist == 0 < 2.1
 
         result = rsr_core.get_binding_site(
-            {ligand_key}, 0, set(), set(), set(), "1cbs",
+            {ligand_key}, 0, True, set(), set(), set(), "1cbs",
             {bs_key: {bs_atom}}, [{ligand_key}], {ligand_key: {ligand_atom}},
             {}, {}, {}, cfg)
 
@@ -819,7 +915,7 @@ class TestGetBindingSite:
         bs_atom = make_real_atom("HIS", "A", 8, 0, 0, 0)
 
         result = rsr_core.get_binding_site(
-            {ligand_key}, 0, set(), set(), set(), "1cbs",
+            {ligand_key}, 0, True, set(), set(), set(), "1cbs",
             {bs_key: {bs_atom}}, [{ligand_key}], {ligand_key: {ligand_atom}},
             {}, {}, {}, cfg)
 
@@ -841,7 +937,7 @@ class TestGetBindingSite:
         other_group = {other_key}
 
         result = rsr_core.get_binding_site(
-            ligand_group, 0, set(), set(), set(), "1cbs",
+            ligand_group, 0, True, set(), set(), set(), "1cbs",
             {}, [ligand_group, other_group], ligand_res_atom_dict,
             {}, {}, {}, cfg)
 
@@ -854,7 +950,7 @@ class TestGetBindingSite:
         edd_dict = {ligand_key: {"occupancy": 0.5}}
 
         result = rsr_core.get_binding_site(
-            {ligand_key}, 0, set(), set(), set(), "1cbs",
+            {ligand_key}, 0, True, set(), set(), set(), "1cbs",
             {}, [{ligand_key}], {ligand_key: set()},
             edd_dict, {}, {}, cfg)
 
@@ -862,6 +958,12 @@ class TestGetBindingSite:
         assert ligand_key in bad_occupancy
 
     def test_binding_site_residue_missing_validation_data_flagged_bad_occupancy(self):
+        # This is the exact mechanism behind a real user report: a binding
+        # site got marked "Bad" and they suspected it was simply because no
+        # electron-density data was found for it, not a genuine density-fit
+        # problem. bs_has_density_data (see get_binding_site/_serialize_ligand
+        # -> "binding_site_density_data_available") makes that distinguishable
+        # from the Results tab instead of just showing an opaque "Bad".
         cfg = rsr_core.AnalysisConfig()
         ligand_key = format_reskey("REA", "A", 200)
         bs_key = format_reskey("ALA", "A", 1)
@@ -869,13 +971,17 @@ class TestGetBindingSite:
         bs_atom = make_real_atom("ALA", "A", 1, 1, 0, 0)
 
         result = rsr_core.get_binding_site(
-            {ligand_key}, 0, set(), set(), set(), "1cbs",
+            {ligand_key}, 0, True, set(), set(), set(), "1cbs",
             {bs_key: {bs_atom}}, [{ligand_key}], {ligand_key: {ligand_atom}},
             {},  # no edd_dict entry at all for bs_key
             {}, {}, cfg)
 
         bad_occupancy = result[5]
+        bsgood = result[4]
+        bs_has_density_data = result[9]
         assert bs_key in bad_occupancy
+        assert bsgood == "Bad"
+        assert bs_has_density_data is False
 
     def test_rte_ignores_binding_site_quality_when_ligand_is_good(self):
         # Regression test documenting current operator-precedence behaviour:
@@ -893,13 +999,14 @@ class TestGetBindingSite:
         edd_dict = {bs_key: {"RSR": 0.9, "RSCC": 0.1, "occupancy": 1.0}}  # very bad BS
 
         result = rsr_core.get_binding_site(
-            {ligand_key}, 0, good_rsr, set(), set(), "1cbs",
+            {ligand_key}, 0, True, good_rsr, set(), set(), "1cbs",
             {bs_key: {bs_atom}}, [{ligand_key}], {ligand_key: {ligand_atom}},
             edd_dict, {"rFree": 0.2}, {}, cfg)
 
-        _, binding_site, rte, _, bsgood, _, _, _ = result
+        _, binding_site, rte, _, bsgood, _, _, _, _, bs_has_density_data = result
         assert bsgood == "Bad"
         assert rte == binding_site  # NOT empty, despite bsgood == "Bad"
+        assert bs_has_density_data is True  # data was present, just poor RSR/RSCC
 
 
 # ---------------------------------------------------------------------------
@@ -986,7 +1093,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value=rcsb_report), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed):
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         assert result["pdbid"] == "1cbs"
@@ -1002,6 +1110,56 @@ class TestParseBindingSite:
         assert lig["source"] == "PDB"
         assert result["struc_dict"]["rFree"] == 0.2
         assert result["rejected"] == {}
+        assert result["edm_available"] is True
+
+    def test_edm_available_false_when_no_map_found_for_pdb_source(self):
+        # edm_available reflects the actual electron-density MAP file
+        # (core.eds_utils.edm_exists), distinct from
+        # ligand_density_data_available/binding_site_density_data_available
+        # above, which reflect RSR/RSCC validation stats instead — a
+        # structure can have one without the other.
+        cfg = rsr_core.AnalysisConfig()
+        ligand_key = format_reskey("REA", "A", 200)
+        edd_dict = {ligand_key: {"RSR": 0.1, "RSCC": 0.95, "occupancy": 1.0}}
+        parsed = (5.0, {}, {ligand_key: {make_real_atom("REA", "A", 200, 0, 0, 0)}}, {}, [], {})
+
+        with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
+             patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
+             patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=False) as mock_exists:
+            result = rsr_core.parse_binding_site("1cbs", cfg)
+
+        assert result["edm_available"] is False
+        mock_exists.assert_called_once_with("1cbs", use_cache=cfg.use_cache)
+
+    def test_edm_available_true_for_pdb_redo_without_an_exists_check(self):
+        # PDB-REDO's map-maker computes the map on request rather than
+        # serving a static file, so a cheap existence-only check isn't
+        # meaningful there (see the note in core.rsr_core._build_result) —
+        # edm_available is instead assumed True whenever the PDB-REDO
+        # analysis itself succeeded, with no extra network call.
+        cfg = rsr_core.AnalysisConfig(pdb_redo=True)
+        ligand_key = format_reskey("REA", "A", 200)
+        edd_dict = {ligand_key: {"RSR": 0.1, "RSCC": 0.95}}
+        parsed = (5.0, {}, {ligand_key: {make_real_atom("REA", "A", 200, 0, 0, 0)}}, {}, [], {})
+        pdbredo_stats = {
+            "experimentalTechnique": "X-RAY DIFFRACTION", "rFree": 0.2, "rWork": 0.18,
+            "refinementResolution": 1.9, "unitCellAngleAlpha": 90.0, "unitCellAngleBeta": 90.0,
+            "unitCellAngleGamma": 90.0, "lengthOfUnitCellLatticeA": 40.0,
+            "lengthOfUnitCellLatticeB": 40.0, "lengthOfUnitCellLatticeC": 40.0, "nreflections": 5000,
+        }
+
+        with patch("core.rsr_core.pdb_redo_utils.get_pdbredo_data", return_value=pdbredo_stats), \
+             patch("core.rsr_core.pdb_redo_utils.get_ED_data", return_value=edd_dict), \
+             patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
+             patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists") as mock_exists:
+            result = rsr_core.parse_binding_site("1cbs", cfg)
+
+        assert result["edm_available"] is True
+        mock_exists.assert_not_called()
 
     def test_struc_dict_nan_values_become_none(self):
         cfg = rsr_core.AnalysisConfig()
@@ -1013,7 +1171,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed):
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         # No RCSB stats at all -> rFree/rWork default to nan -> serialised as None.
@@ -1033,7 +1192,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed):
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         # occupancy 0.75 < occupancy_min(1.0) -> ligand flagged low_occupancy
@@ -1055,7 +1215,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed) as mock_parse:
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed) as mock_parse, \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         assert result["pdbid"] == "1cbs"
@@ -1083,7 +1244,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value=rcsb_report), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed):
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         assert result["struc_dict"]["DPI"] is not None
@@ -1100,7 +1262,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value=rcsb_report), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed):
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         assert result["struc_dict"]["DPI"] is None  # NaN serialised to None
@@ -1132,7 +1295,8 @@ class TestParseBindingSite:
         with patch("core.rsr_core.pdb_utils.get_custom_report", return_value={}), \
              patch("core.rsr_core.eds_utils.get_EDS", return_value=({"1cbs": True}, edd_dict)), \
              patch("core.rsr_core.pdb_utils.get_pdb_file", return_value="/tmp/f.cif"), \
-             patch("core.rsr_core.parse_mmcif_file", return_value=parsed):
+             patch("core.rsr_core.parse_mmcif_file", return_value=parsed), \
+             patch("core.rsr_core.eds_utils.edm_exists", return_value=True):
             result = rsr_core.parse_binding_site("1cbs", cfg)
 
         assert result == {"pdbid": "1cbs", "error": "No ligands found"}
